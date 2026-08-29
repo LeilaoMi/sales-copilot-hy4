@@ -1,0 +1,16 @@
+{
+  "name": "sales-copilot-edgeone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "销冠助手 · EdgeOne Pages 同步后端（Node Functions + Blob）",
+  "type": "module",
+  "scripts": {
+    "dev": "echo '本地开发请用 EdgeOne CLI，或直接用项目自带的 node server.js' && exit 0"
+  },
+  "dependencies": {
+    "@edgeone/pages-blob": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,40 @@
+# 销冠助手 · systemd 守护（有自己服务器 / 云主机时用）
+#
+# 安装步骤：
+#   1. 把项目放到 /opt/sales-copilot
+#   2. 复制本文件到 /etc/systemd/system/sales-copilot.service
+#   3. 修改下面的 SYNC_TOKEN（不设就是多人模式）
+#   4. 执行：
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now sales-copilot
+#        sudo systemctl status sales-copilot
+#   5. 看日志：sudo journalctl -u sales-copilot -f
+#   6. 看令牌：cat /opt/sales-copilot/data/token.txt
+
+[Unit]
+Description=销冠助手同步服务
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sales-copilot
+Environment=PORT=8080
+# 专属模式：只认这一个令牌（推荐个人自用）
+Environment=SYNC_TOKEN=change-me-to-a-long-random-string
+# 多人模式：把上面那行注释掉即可，任意 >=8 位令牌各自独立存一份
+
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+# 安全加固：以普通用户运行，只允许写 data 目录
+User=www-data
+Group=www-data
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/sales-copilot/data
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>销冠助手 · 个人销售作战台</title>
+<meta name="theme-color" content="#2563eb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="销冠助手">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Ctext x='32' y='45' font-size='40' font-family='sans-serif' font-weight='bold' fill='white' text-anchor='middle'%3E%E9%94%80%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">销</div>
+    <div class="brand-text">
+      <strong>销冠助手</strong>
+      <span id="owner-line">个人销售作战台</span>
+    </div>
+  </div>
+
+  <div class="top-search">
+    <input id="global-search" type="search" placeholder="搜客户 / 联系人 / 电话，回车检索" autocomplete="off">
+  </div>
+
+  <div class="top-metrics">
+    <div class="tm">
+      <span class="tm-label">本月业绩</span>
+      <span class="tm-value" id="tm-revenue">¥0</span>
+    </div>
+    <div class="tm">
+      <span class="tm-label">目标完成</span>
+      <span class="tm-value" id="tm-rate">0%</span>
+    </div>
+    <div class="tm tm-alert" id="tm-todo" title="今天及逾期待跟进">
+      <span class="tm-label">待跟进</span>
+      <span class="tm-value" id="tm-todo-value">0</span>
+    </div>
+  </div>
+
+  <button class="sync-pill" id="sync-pill" data-action="sync-pill" title="点击查看/立即同步">
+    <span class="sync-dot"></span><span id="sync-pill-text">未同步</span>
+  </button>
+
+  <div class="top-actions">
+    <button class="btn btn-ghost" data-action="quick-followup">+ 记跟进</button>
+    <button class="btn btn-primary" data-action="new-customer">+ 新客户</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-view="dash">战情台</button>
+  <button class="tab" data-view="customers">客户库</button>
+  <button class="tab" data-view="deals">商机看板</button>
+  <button class="tab" data-view="followups">跟进日志</button>
+  <button class="tab" data-view="scripts">话术库</button>
+  <button class="tab" data-view="report">周报</button>
+  <button class="tab" data-view="ai">AI 助手</button>
+  <button class="tab" data-view="settings">设置</button>
+</nav>
+
+<main id="main">
+  <section class="view" id="view-dash"></section>
+  <section class="view" id="view-customers" hidden></section>
+  <section class="view" id="view-deals" hidden></section>
+  <section class="view" id="view-followups" hidden></section>
+  <section class="view" id="view-scripts" hidden></section>
+  <section class="view" id="view-report" hidden></section>
+  <section class="view" id="view-ai" hidden></section>
+  <section class="view" id="view-settings" hidden></section>
+</main>
+
+<div class="modal-backdrop" id="modal-backdrop" hidden>
+  <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<!-- playbook.js 必须排在 store.js 前面：
+     数据迁移时要读它的种子话术，晚加载就补不上 -->
+<script src="playbook.js"></script>
+<script src="store.js"></script>
+<script src="health.js"></script>
+<script src="quicklog.js"></script>
+<!-- digest.js 依赖 quicklog 的日期解析，必须排在它后面 -->
+<script src="digest.js"></script>
+<!-- report.js 依赖 store 的统计与日期工具，排在 store 之后 -->
+<script src="report.js"></script>
+<!-- coach.js 依赖 playbook 的意图识别与检索，还要读 report 的 STALE_DAYS，排在两者之后 -->
+<script src="coach.js"></script>
+<script src="charts.js"></script>
+<script src="views.js"></script>
+<script src="ai.js"></script>
+<script src="sync.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
