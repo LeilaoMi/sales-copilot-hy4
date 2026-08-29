@@ -70,11 +70,16 @@ window.Sync = (function () {
    * 写回 state 时本地刚灌的示例会被当场抹掉 —— 用户一同步示例就没了。
    * 推送（往外发）和合并（跟自己比）是两件事，必须分开。
    *
-   * 顺带说明：删除产生的墓碑也在 SYNC_KEYS 里，示例的墓碑同样被过滤 ——
-   * 云端从来没有过这条记录，不需要为它留墓碑。 */
+   * 墓碑要单独说一句：`!r.demo || r.deleted`。
+   *
+   * 墓碑是「删除」这个动作的唯一载体。云端可能还留着历史上推上去的示例客户
+   * （那时候示例没打标记），要是连墓碑一起过滤掉，那批旧示例就永远删不掉了 ——
+   * 用户清空、同步、示例复活，无解。
+   *
+   * 所以规则是：示例记录本身不上云，但示例的**墓碑**必须放行。 */
   function pushPayload() {
     const s = snapshot();
-    S.SYNC_KEYS.forEach(k => { s[k] = (s[k] || []).filter(r => !r.demo); });
+    S.SYNC_KEYS.forEach(k => { s[k] = (s[k] || []).filter(r => !r.demo || r.deleted); });
     return s;
   }
 

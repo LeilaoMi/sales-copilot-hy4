@@ -220,16 +220,46 @@ window.Store = (function () {
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { persistent = false; }
   }
+  /* 清空业务数据时要活下来的东西：个人设置。
+   *
+   * 尤其是 settings.sync（endpoint + token）。用户在设置页一个字一个字
+   * 填进去的，清空一次业务数据就让他重填一遍已经够烦了，真正要命的是
+   * **界面上一声不吭**：mode 悄悄变回 off，同步胶囊不再动，
+   * 他以为数据还在往云端传，实际上早就断了 —— 等他在另一台设备上发现
+   * 数据对不上，可能是几周以后的事。
+   *
+   * 「配置」和「数据」是两回事：数据可以清空，配置不能。 */
+  function carrySettings() {
+    return Object.assign({}, state.settings || {});
+  }
+
   function reset(keepScripts) {
     const s = keepScripts ? state.scripts : defaultScripts();
-    /* 引导标记必须活过清空 —— 它是「这个人用过」的证据，不是数据的一部分。
-     * 用户点了清空，说明他知道自己在干什么，是老手不是新用户。
-     * 这里若把它清回 false，只要换个设备或清一次缓存，示例就又长回来了，
-     * 等于把他刚才那一下清空作废。 */
-    const wasOnboarded = state.settings && state.settings.onboarded === true;
+    const prev = carrySettings();
+    const now = Date.now();
+
+    /* 清空必须留墓碑，不能让记录凭空消失。
+     *
+     * 不留墓碑的话，「清空」只在本机生效：云端那条记录还好好的，
+     * 下次同步一 merge 它又回来了。用户在**线上**反复清不掉示例数据，
+     * 主因就在这儿 —— 本地判定的问题只是另一半（那一半只在不开同步时发作）。
+     *
+     * 墓碑让「清空」变成一个能传播的动作：推到云端，别的设备也会跟着清。
+     * 代价是数据文件里会留一批墓碑，由设置里的「压缩数据」（purge）清理。 */
+    const tombs = {};
+    SYNC_KEYS.forEach(k => {
+      if (k === 'scripts') { tombs[k] = []; return; }   // 话术库不删，也就不留墓碑
+      tombs[k] = (state[k] || []).map(r =>
+        r.deleted ? r : Object.assign({}, r, { deleted: true, updatedAt: now }));
+    });
+
     state = emptyState();
-    if (wasOnboarded) state.settings.onboarded = true;
+    /* 个人设置整份保留，包括 onboarded —— 它是「这个人用过」的证据，
+     * 不是数据的一部分。一旦清回 false，换个设备或清一次缓存，
+     * 示例就又长回来了，等于把他刚才那一下清空作废。 */
+    state.settings = prev;
     state.scripts = s;
+    SYNC_KEYS.forEach(k => { if (k !== 'scripts') state[k] = tombs[k]; });
     migrate();
     save();
   }
@@ -541,7 +571,11 @@ window.Store = (function () {
    * 补缺失的新种子，但不覆盖他改过的任何一条。 */
   function seed(keepScripts) {
     const prev = state && Array.isArray(state.scripts) ? state.scripts : null;
+    const prevSettings = carrySettings();
     state = emptyState();
+    /* 个人设置整份保留：「载入示例数据」换的是业务数据，
+     * 不该顺手把 owner、目标金额、AI 配置、云同步一起重置掉。 */
+    state.settings = prevSettings;
     /* 灌过示例 = 完成过引导，顺手把标记置上并推进同步时间戳。
      * 在这里做而不是丢给调用方，是因为「灌示例」本身就是引导的全部内容，
      * 指望每个调用方都记得补一步，迟早有人忘（然后这个 bug 又回来了）。 */
