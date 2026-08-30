@@ -41,7 +41,14 @@ window.QuickLog = (function () {
     const m = String(raw || '').match(NEXT_INTENT);
     if (!m) return '';
     const after = String(raw).slice(m.index + m[0].length);
-    return parseDate(after, now) || parseDate(raw, now);
+    /* 「下次周一再联系」里的「下次」既是意图词，又是时间前缀。
+     * 早期一律从意图词**之后**截，剩下「周一再联系」——前缀没了，
+     * 「下次周一」退化成「本周的周一」，周一当天说这句，跟进日＝今天，
+     * 这次跟进等于没排期。
+     * 所以「下次/下回」要连同自身一起带进去解析；带进去解不出，
+     * 再退回原来的切法，不改变其他句子的既有行为。 */
+    const withWord = /^(下次|下回)/.test(m[0]) ? String(raw).slice(m.index) : '';
+    return parseDate(withWord, now) || parseDate(after, now) || parseDate(raw, now);
   }
 
   const WEEK_MAP = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
@@ -67,7 +74,18 @@ window.QuickLog = (function () {
     /* 前缀只吃「下下/下/本/这」，「周」字留给后面的组。
      * 早期写成 (下下?周|本周)?(?:星期|周)(…)，「下周」会把「周」吃掉，
      * 导致「下周日」匹配不到后面的「周日」，退化成「本周日」。 */
-    const wk = t.match(/(下下|下|本|这)?(?:星期|周)([一二三四五六日天])/);
+    /* 前缀要把「下周」「下次」也收进来。
+     *
+     * 早期只写了 (下下|下|本|这)，要求它**紧挨着**「周」字，于是：
+     *   「下周周一」→ 在「下周周」处匹配不上，回溯到后半段的「周一」，
+     *                 前缀被丢掉，退化成「本周的周一」
+     *   「下次周一」→ 「下」后面是「次」不是「周」，前缀同样丢失
+     * 后果很具体：周一早上说「下次周一再联系」，跟进日被记成**今天**，
+     * 等于这次跟进压根没有排期。
+     *
+     * 注意「下周」要排在「下」前面，否则「下周一」会先吃掉「下」，
+     * 剩下「周一」里的「周」没得匹配。 */
+    const wk = t.match(/(下下|下周|下次|下|本|这)?(?:星期|周)([一二三四五六日天])/);
     if (wk) {
       const target = WEEK_MAP[wk[2]];
       const cur = base.getDay();
@@ -75,7 +93,10 @@ window.QuickLog = (function () {
       const thisMonday = S.addDays(S.fmtDate(base), mondayOff);
       const idx = target === 0 ? 6 : target - 1;        // 周一=0 … 周日=6
       if (wk[1] === '下下') return S.addDays(thisMonday, 14 + idx);
-      if (wk[1] === '下') return S.addDays(thisMonday, 7 + idx);
+      /* 「下周」「下次」「下」都按下个自然周算，口径和「下周三」保持一致 */
+      if (wk[1] === '下' || wk[1] === '下周' || wk[1] === '下次') {
+        return S.addDays(thisMonday, 7 + idx);
+      }
       if (wk[1]) return S.addDays(thisMonday, idx);     // 本周/这周
       // 没说哪一周：本周的还没过就用本周，过了就用下周
       const d = S.addDays(thisMonday, idx);

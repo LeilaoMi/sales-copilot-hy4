@@ -1,0 +1,51 @@
+# Cloudflare Pages 缓存规则
+#
+# 【这个文件放这儿，不放 public/】
+# public/ 是 node build.js --pages 生成出来的目录，每次构建先清空。
+# 缓存规则是手写的配置，跟生成物混在一起，一次 rm -rf 就没了 ——
+# 而且不会有任何人报错，只是 Service Worker 又开始拿旧代码，
+# 表现为「改了没生效」，能让人查一下午。
+# 所以源文件放 deploy/，由 build.js 复制过去。
+#
+# 【命中多条规则时，Cloudflare 的头是「叠加」而不是「覆盖」】
+# 这是最容易踩的一点：下面先给所有资源发了一份默认缓存头，
+# 再给 sw.js 单独一份 no-cache。如果不先用 `! Cache-Control` 把默认那份
+# 摘掉，两条会拼成
+#   Cache-Control: public, max-age=300, no-cache
+# 浏览器看到 max-age 就照着缓存了 —— no-cache 白写。
+# 所以每条针对性规则的第一行都是 `! Cache-Control`。
+
+# ---------- 兜底：所有资源 ----------
+# 文件名不带 hash，不能设长缓存。
+# 这个项目修复过一次「用户刷新拿不到新代码」的问题，根因就是缓存时间太长，
+# 5 分钟是权衡：日常刷新能很快拿到新版，又不会因为每次都回源而变慢。
+/*
+  Cache-Control: public, max-age=300
+  X-Content-Type-Options: nosniff
+
+# ---------- Service Worker：绝不缓存 ----------
+# sw.js 是「页面该拿新代码还是旧代码」的裁判。
+# 它自己要是被缓存了，裁判手里拿的就是旧名单，
+# 用户怎么刷新都是旧版本 —— 这是本项目踩过的最大的一个坑。
+/sw.js
+  ! Cache-Control
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# ---------- 入口页：绝不缓存 ----------
+# 页面壳子里写着脚本清单，缓存了同样会导致加载旧脚本。
+/index.html
+  ! Cache-Control
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/
+  ! Cache-Control
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# ---------- 清单与图标 ----------
+# manifest 更新了但被缓存，表现是「添加到主屏幕」之后图标还是老的。
+/manifest.json
+  ! Cache-Control
+  Cache-Control: no-cache
+
+/*.png
+  Cache-Control: public, max-age=300

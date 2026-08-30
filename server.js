@@ -270,7 +270,18 @@ const server = http.createServer((req, res) => {
     }
     fs.readFile(file, (e2, buf) => {
       if (e2) return send(res, 404, { error: '文件不存在' });
-      send(res, 200, buf, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream' });
+      /* sw.js 和 index.html 一律 no-cache。
+       *
+       * sw.js 尤其关键：浏览器每次导航都会去比对它变没变，
+       * 一旦被缓存住，Service Worker 就不再重新安装，
+       * 用户机器上那份旧的缓存清单也就永远换不掉 ——
+       * 部署了新代码，刷新拿到的还是旧文件，修好的 bug 等于没修。 */
+      const extra = (pathname === '/sw.js' || pathname === '/' || pathname === '/index.html')
+        ? { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        : {};
+      send(res, 200, buf, Object.assign({
+        'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream'
+      }, extra));
     });
   });
 });

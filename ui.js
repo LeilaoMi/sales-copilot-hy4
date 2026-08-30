@@ -583,7 +583,16 @@
     updateBadge();
     if (view === 'scripts') bindScriptSearch();
     if (window.Sync) renderSyncStatus();
+
+    /* 成员列表要发请求，不能每次 render 都拉一遍。
+     * 只在「刚进入设置页」时拉一次，离开后再进来才重新拉。 */
+    if (view === 'settings') {
+      if (lastTeamView !== 'settings') { lastTeamView = 'settings'; loadTeam(); }
+    } else {
+      lastTeamView = view;
+    }
   }
+  let lastTeamView = '';
 
   /* 话术搜索：防抖 + 只重绘结果区。
    * 整页重绘会让输入框失焦 —— 打一个字光标就跳走，这功能等于没法用。 */
@@ -674,11 +683,12 @@
       else hint.innerHTML = `${E(st.message || '待同步')}　·　本地改动 4 秒后自动上传，每 60 秒自动检查一次云端更新。`;
     }
     // 字段显隐随模式切换
-    const hf = $('#sync-http-fields'), sf = $('#sync-sb-fields');
+    const hf = $('#sync-http-fields'), sf = $('#sync-sb-fields'), cf = $('#sync-cloud-fields');
     const sel = $('#sync-mode');
     if (hf && sf && sel) {
       hf.hidden = sel.value !== 'http';
       sf.hidden = sel.value !== 'supabase';
+      if (cf) cf.hidden = sel.value !== 'cloud';
     }
   }
 
@@ -880,16 +890,208 @@
 
     'save-ai': async () => {
       const s = S.state.settings;
-      s.ai = s.ai || {};
-      s.ai.base = readVal('ai-base') || 'https://api.deepseek.com/v1';
-      s.ai.key = $('#ai-key').value || '';
-      s.ai.model = readVal('ai-model') || 'deepseek-chat';
+      const prev = s.ai || {};
+      s.ai = {
+        provider: (prev.provider === undefined ? 'deepseek' : prev.provider),
+        base: readVal('ai-base') || 'https://api.deepseek.com/v1',
+        key: $('#ai-key').value || '',
+        model: readVal('ai-model') || 'deepseek-chat'
+      };
       s.ai.enabled = !!s.ai.key;
+      s.updatedAt = Date.now();
       S.save();
       if (!s.ai.key) { toast('已清空 API 配置', 'ok'); render(); return; }
+      AI.pushHistory(s.ai);
       toast('正在测试连接…', 'ok');
       try { await AI.testConnection(); toast('连接成功，AI 助手已可用', 'ok'); }
       catch (e) { toast('连接失败：' + e.message, 'err'); }
+      render();
+    },
+
+    /* ---------- AI 服务商 ---------- */
+    /* 换了服务商就预填那家的地址和默认模型名。
+     * 但 Key 不预填——不同家的 Key 不通用，留着旧的只会让人以为配好了。 */
+    'ai-provider-change': () => {
+      const sel = $('#ai-provider');
+      if (!sel) return;
+      const p = (AI.PROVIDERS || {})[sel.value];
+      if (!p) return;
+      const s = S.state.settings;
+      s.ai = Object.assign({}, s.ai, { provider: sel.value });
+      if (p.base) {
+        const base = $('#ai-base'); if (base) base.value = p.base;
+      }
+      if (p.model) {
+        const m = $('#ai-model'); if (m) m.value = p.model;
+      }
+      const hint = $('#ai-hint');
+      if (hint) {
+        hint.innerHTML = p.note
+          ? `已切到 <b>${E(p.name)}</b>：${E(p.note)}。填 Key 就能用。`
+          : `已切到 <b>${E(p.name)}</b>，填 Key 就能用。`;
+      }
+      if (!p.base) {
+        const base = $('#ai-base');
+        if (base) { base.value = ''; base.placeholder = 'https://your-api.com/v1'; base.focus(); }
+      }
+    },
+    'ai-use-history': (el) => {
+      const i = Number((el && el.dataset && el.dataset.i) || -1);
+      const h = (S.state.settings.aiHistory || [])[i];
+      if (!h) return;
+      const s = S.state.settings;
+      /* 只换地址和模型名，Key 沿用当前在用的那个——
+       * 历史里不存明文 Key（存了也不安全），所以没法自动填回去。 */
+      s.ai = Object.assign({}, s.ai, { provider: h.provider, base: h.base, model: h.model });
+      S.save();
+      render();
+      toast('已切回这套配置，Key 用的是当前这个（' + (h.keyHint || '') + '…）', 'ok');
+    },
+    'ai-list-models': async () => {
+      toast('正在拉取模型列表…', 'ok');
+      try {
+        const list = await AI.listModels();
+        openModal('选择模型', `
+          <div class="field"><label>这家有 ${list.length} 个模型，点一个直接用</label></div>
+          <div style="max-height:320px;overflow:auto;display:flex;flex-direction:column;gap:4px">
+            ${list.map(m => `<button class="btn btn-sm" data-action="ai-pick-model" data-m="${E(m)}"
+              style="text-align:left;justify-content:flex-start">${E(m)}</button>`).join('')}
+          </div>`,
+          () => {});
+      } catch (e) { toast('拉取失败：' + e.message + '（也可以手填模型名）', 'err'); }
+    },
+    'ai-pick-model': (el) => {
+      const m = (el && el.dataset && el.dataset.m) || '';
+      if (!m) return;
+      const s = S.state.settings;
+      s.ai = Object.assign({}, s.ai, { model: m });
+      S.save();
+      closeModal();
+      render();
+      toast('已选择模型 ' + m, 'ok');
+    },
+    'ai-test': async () => {
+      if (!$('#ai-key').value) { toast('先填 Key 再测', 'err'); return; }
+      const s = S.state.settings;
+      s.ai = Object.assign({}, s.ai, {
+        provider: $('#ai-provider') ? $('#ai-provider').value : (s.ai || {}).provider,
+        base: readVal('ai-base'), key: $('#ai-key').value, model: readVal('ai-model')
+      });
+      S.save();
+      toast('正在测试…', 'ok');
+      try { await AI.testConnection(); toast('连接成功', 'ok'); }
+      catch (e) { toast('连接失败：' + e.message, 'err'); }
+    },
+
+    /* ---------- 跟进提醒 ---------- */
+    'notify-request': async () => {
+      const r = await Notify.request();
+      if (r === 'granted') { toast('已开启系统通知，到点会提醒你', 'ok'); Notify.check(true); }
+      else if (r === 'denied') toast('浏览器已阻止通知。点地址栏左侧的图标 → 网站设置 → 允许通知', 'err');
+      else toast('这个环境不支持系统通知，页面内的角标提醒仍然有效', 'err');
+      render();
+    },
+    'save-notify': () => {
+      const on = readVal('notify-enabled') === '1';
+      Notify.saveCfg({ enabled: on });
+      if (on) {
+        Notify.request().then(r => {
+          if (r === 'granted') Notify.check(true);
+          render();
+        });
+        toast('已开启。若要系统弹窗，浏览器会问你一次权限', 'ok');
+      } else {
+        toast('已关闭提醒', 'ok');
+        render();
+      }
+    },
+
+    /* ---------- 云账号与团队 ---------- */
+    'save-cloud': async () => {
+      const url = readVal('cloud-url'), key = $('#cloud-key') ? $('#cloud-key').value.trim() : '';
+      if (!url || !key) { toast('地址和 anon key 都要填', 'err'); return; }
+      Auth.saveCfg({ url: url, key: key });
+      toast('正在连接…', 'ok');
+      try {
+        await Auth.testConn();
+        toast('连接正常，可以注册或登录了', 'ok');
+      } catch (e) {
+        toast('连接失败：' + e.message, 'err');
+      }
+      render();
+    },
+    'cloud-signup': async () => {
+      const mail = readVal('cloud-email'), pwd = $('#cloud-pwd') ? $('#cloud-pwd').value : '';
+      const name = readVal('cloud-name');
+      if (!mail || !pwd) { toast('邮箱和密码都要填', 'err'); return; }
+      if (pwd.length < 6) { toast('密码至少 6 位', 'err'); return; }
+      toast('正在注册…', 'ok');
+      try {
+        const r = await Auth.signUp(mail, pwd, name);
+        if (r.needConfirm) {
+          toast('注册成功，请先去邮箱点确认链接再登录', 'ok');
+        } else {
+          toast('注册成功，已自动登录', 'ok');
+          afterLogin();
+        }
+      } catch (e) { toast('注册失败：' + e.message, 'err'); }
+      render();
+    },
+    'cloud-login': async () => {
+      const mail = readVal('cloud-email'), pwd = $('#cloud-pwd') ? $('#cloud-pwd').value : '';
+      if (!mail || !pwd) { toast('邮箱和密码都要填', 'err'); return; }
+      toast('正在登录…', 'ok');
+      try {
+        await Auth.signIn(mail, pwd);
+        toast('登录成功', 'ok');
+        afterLogin();
+      } catch (e) { toast('登录失败：' + e.message, 'err'); }
+      render();
+    },
+    'cloud-logout': async () => {
+      await Auth.signOut();
+      toast('已退出，本地数据原封不动', 'ok');
+      render();
+    },
+    'cloud-reset': () => {
+      Auth.saveCfg({ url: '', key: '' });
+      toast('已清空，可以换一个 Supabase 项目', 'ok');
+      render();
+    },
+    'cloud-refresh': async () => {
+      await Auth.loadProfile(true);
+      render();
+      toast('已刷新', 'ok');
+    },
+    'team-set-role': async (el) => {
+      const uid = (el && el.dataset && el.dataset.uid) || '';
+      const role = el ? el.value : '';
+      if (!uid || !role) return;
+      try {
+        await Auth.setRole(uid, role);
+        toast('角色已更新', 'ok');
+      } catch (e) { toast('改不了：' + e.message, 'err'); }
+      render();
+      loadTeam();
+    },
+    'team-remove': async (el) => {
+      const uid = (el && el.dataset && el.dataset.uid) || '';
+      if (!uid) return;
+      const name = (el.dataset.name || '这位成员');
+      openModal('把 ' + name + ' 移出团队',
+        `<p class="small">移出后他就<b>看不到团队共享话术</b>了，但他的客户数据本来就是他自己的，
+         不会跟着消失。</p><p class="small muted">确定吗？</p>`,
+        async () => {
+          try { await Auth.removeFromTeam(uid); toast('已移出团队', 'ok'); }
+          catch (e) { toast('操作失败：' + e.message, 'err'); }
+          render(); loadTeam();
+        });
+    },
+    'team-rename': async () => {
+      const input = $('#team-name-input');
+      if (!input || !input.value.trim()) return;
+      try { await Auth.renameTeam(input.value.trim()); toast('团队名已更新', 'ok'); }
+      catch (e) { toast('改名失败：' + e.message, 'err'); }
       render();
     },
 
@@ -1144,6 +1346,24 @@
       else if (id === 'c-sort') { filters.customers.sort = e.target.value; render(); }
       else if (id === 'f-customer') { filters.followups.customerId = e.target.value; render(); }
       else if (id === 'f-type') { filters.followups.type = e.target.value; render(); }
+      /* 下拉框走的是 change，不是 click ——
+       * 早先把它当 click 处理，结果用户切了服务商界面一点反应都没有。 */
+      else if (id === 'ai-provider') { if (actions['ai-provider-change']) actions['ai-provider-change'](e.target); }
+      else if (id === 'team-role-sel') { /* 成员角色由它自己的 data-action 处理 */ }
+      /* 「补充要求」这个框在不同场景下要填的东西不一样：
+       * 话术军火里它是**客户原话**（核心输入，不是可选的补充），
+       * 提示词写错用户就会留空，生成出来一堆废话。 */
+      else if (id === 'ai-scenario') {
+        const ta = $('#ai-extra');
+        const lab = ta && ta.closest('.field') ? ta.closest('.field').querySelector('label') : null;
+        if (e.target.value === 'advise') {
+          if (ta) ta.placeholder = '把客户的原话粘在这里，例：「你们比别家贵 20%」';
+          if (lab) lab.textContent = '客户原话（必填）';
+        } else {
+          if (ta) ta.placeholder = '例：语气客气一点 / 突出 ROI / 催单但不显得急';
+          if (lab) lab.textContent = '补充要求';
+        }
+      }
       else if (cl.contains('stage-sel') || cl.contains('mstage-sel')) {
         S.setStage(e.target.dataset.id, e.target.value, true);
         toast('阶段已更新为「' + S.stageOf(e.target.value).name + '」', 'ok');
@@ -1359,9 +1579,63 @@
     return true;
   }
 
+  /* 登录后要做的事：如果同步方式已经是「账号」，立刻跑一次把云端数据拉下来。
+   * 刻意不自动把 mode 改成 cloud —— 用户可能只是登个号，还想继续用自建后端。 */
+  function afterLogin() {
+    if ((Sync.cfg().mode || 'off') === 'cloud') {
+      Promise.resolve(Sync.start()).catch(() => null).then(() => { renderSyncStatus(); render(); });
+    }
+    loadTeam();
+  }
+
+  /* 管理员的成员列表是异步拉的，渲染时拿不到，只能事后填。
+   * 普通成员调 teamMembers() 会拿到空数组（RLS 拦的），这里也就没什么可显示。 */
+  async function loadTeam() {
+    const box = $('#team-members');
+    if (!box || !window.Auth || !Auth.isOn() || !Auth.isAdmin()) return;
+    box.innerHTML = '<span class="muted small">正在读取成员…</span>';
+    let members = [];
+    try { members = await Auth.teamMembers(); } catch (e) {
+      box.innerHTML = `<span class="down small">读取失败：${E(e.message)}</span>`;
+      return;
+    }
+    if (!members.length) {
+      box.innerHTML = '<span class="muted small">团队里还没有其他人。让他们自己注册，你再在这里把角色改过来。</span>';
+      return;
+    }
+    const roleName = { owner: '拥有者', admin: '管理员', member: '使用员' };
+    box.innerHTML = `
+      <table class="tbl" style="margin-top:8px">
+        <thead><tr><th>成员</th><th>角色</th><th>操作</th></tr></thead>
+        <tbody>
+        ${members.map(m => `
+          <tr>
+            <td>${E(m.display_name || String(m.id).slice(0, 8))}${m.id === Auth.userId() ? ' <span class="muted small">（我）</span>' : ''}</td>
+            <td>
+              <select data-action="team-set-role" data-uid="${E(m.id)}"
+                ${(m.id === Auth.userId() && m.role === 'owner') ? 'disabled' : ''}>
+                ${['owner', 'admin', 'member'].map(r =>
+                  `<option value="${r}"${m.role === r ? ' selected' : ''}>${roleName[r]}</option>`).join('')}
+              </select>
+            </td>
+            <td>
+              ${m.id === Auth.userId() ? '<span class="muted small">—</span>'
+                : `<button class="btn btn-sm btn-danger" data-action="team-remove"
+                    data-uid="${E(m.id)}" data-name="${E(m.display_name || '这位成员')}">移出团队</button>`}
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="hint">角色说明：<b>使用员</b>只见自己的客户；<b>管理员</b>能看到全队进度，但改不动别人的数据；
+        <b>拥有者</b>权限同管理员，另外能改团队名。把 owner 转给别人之前，你不能把自己降下来。</div>`;
+  }
+
   function init() {
     keepTabsUnderTopbar();
     S.load();
+    /* 账号初始化必须在 render 之前：登录态决定设置页显示哪一块。
+     * 没登录时这里全是空操作，不会发任何请求，也不会弹出任何东西。 */
+    if (window.Auth) Auth.init();
     bind();
     render();
 
@@ -1372,15 +1646,30 @@
       renderSyncStatus();
     }
     if (cloudOn) {
-      /* start() 返回首次同步的 Promise。等它落定再判示例 ——
-       * 网络不通时 sync 会 reject，catch 掉即可：拉不到就当云端是空的，
-       * 该给新用户的体验照样给，不能因为断网就卡住整个启动流程。 */
-      Promise.resolve(Sync.start())
-        .catch(() => null)
-        .then(() => { maybeSeedDemo(); renderSyncStatus(); });
+      /* 账号模式要先确认登录态：没登录就别白跑一趟同步，
+       * 但也不能因此卡住启动——就跟断网一样，跳过就是了。 */
+      if ((Sync.cfg().mode || '') === 'cloud' && window.Auth && !Auth.isOn()) {
+        const hint = $('#sync-status');
+        if (hint) hint.innerHTML = '<span class="down">账号模式需要登录，本次已跳过</span> —— 本地数据不受影响，登录后去设置页点一次「保存并连接」。';
+        maybeSeedDemo();
+      } else {
+        /* start() 返回首次同步的 Promise。等它落定再判示例 ——
+         * 网络不通时 sync 会 reject，catch 掉即可：拉不到就当云端是空的，
+         * 该给新用户的体验照样给，不能因为断网就卡住整个启动流程。 */
+        Promise.resolve(Sync.start())
+          .catch(() => null)
+          .then(() => { maybeSeedDemo(); renderSyncStatus(); });
+      }
     } else {
       maybeSeedDemo();
     }
+
+    /* 跟进提醒。未授权、不支持、没数据都不会有任何动静，
+     * 只有真的有该跟进的客户时才弹一次。 */
+    if (window.Notify) {
+      try { Notify.start(); } catch (e) { /* 通知失败绝不能影响主流程 */ }
+    }
+    if (window.Auth && Auth.isOn()) loadTeam();
 
     // 注册 Service Worker，支持 PWA 离线使用
     if ('serviceWorker' in navigator) {

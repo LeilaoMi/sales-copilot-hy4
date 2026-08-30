@@ -902,6 +902,172 @@ window.Views = (function () {
     return `<div class="grid g3">${group.map(s => scriptCard(s, '')).join('') || emptyBox('还没有话术')}</div>`;
   }
 
+  /* ---------- 服务商选择 ----------
+   * 为什么不干脆让用户自己填地址：各家地址长得没规律，
+   * 「https://dashscope.aliyuncs.com/compatible-mode/v1」这种让用户手打不现实。
+   * 选中即预填地址和默认模型名，用户只需要填自己的 Key。 */
+  function aiProviderPicker(ai) {
+    const P = (window.AI && window.AI.PROVIDERS) || {};
+    const cur = ai.provider || 'deepseek';
+    const opts = Object.keys(P).map(k =>
+      `<option value="${E(k)}"${cur === k ? ' selected' : ''}>${E(P[k].name)}${P[k].note ? '（' + E(P[k].note) + '）' : ''}</option>`
+    ).join('');
+    const hist = (S.state.settings.aiHistory || []);
+    const histHtml = hist.length ? `
+      <div class="field"><label>用过的配置</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${hist.map((h, i) => `<button class="btn btn-sm" data-action="ai-use-history" data-i="${i}"
+            title="${E(P[h.provider] ? P[h.provider].name : h.provider)} · ${E(h.keyHint || '')}…">${E((P[h.provider] && P[h.provider].name) || h.provider)} · ${E(h.model || '未填模型')}</button>`).join('')}
+        </div></div>` : '';
+    return `
+      <div class="field"><label>服务商</label>
+        <select id="ai-provider" data-action="ai-provider-change">${opts}</select></div>
+      ${histHtml}
+      <div class="hint">国内主流模型商现在都兼容 OpenAI 那套协议，所以换模型只是换地址 + 模型名，不用改代码。</div>`;
+  }
+
+  /* ---------- 提醒设置 ----------
+   * 权限被用户拒了要明确说出来，而不是默默什么都不做——
+   * 销售会以为「我开了提醒但没提醒」，这是最糟的结果。 */
+  function notifyCard() {
+    const N = window.Notify;
+    if (!N) return '';
+    const c = N.cfg();
+    const perm = N.permission;
+    const on = c.enabled !== false;
+    let stateHtml = '';
+    if (!N.supported()) {
+      stateHtml = '<span class="down">当前环境不支持系统通知（用 http 打开或浏览器不支持）</span>';
+    } else if (perm === 'granted') {
+      stateHtml = '<span class="up">系统通知已授权</span>';
+    } else if (perm === 'denied') {
+      stateHtml = '<span class="down">浏览器通知已被阻止，需在地址栏左侧的网站设置里重新允许</span>';
+    } else {
+      stateHtml = '<span class="muted">还没授权系统通知</span>';
+    }
+    const b = N.badge ? N.badge() : { count: 0, overdue: 0 };
+    return `
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">跟进提醒<span class="card-sub">到点了主动叫你，不用一直盯着</span></div>
+          <span class="badge" style="background:${on ? '#16a34a' : '#94a3b8'}">${on ? '已开启' : '已关闭'}</span>
+        </div>
+        <p class="small muted" style="margin-top:0">
+          只提醒两类：<b>已经过了跟进日还没跟的</b>，和<b>今明两天到期的</b>。
+          一天只弹一次，不反复打扰 —— 提醒太密，人第一反应就是关掉权限。
+        </p>
+        <div class="field-row">
+          <div class="field"><label>开关</label>
+            <select id="notify-enabled">
+              <option value="1"${on ? ' selected' : ''}>开启</option>
+              <option value="0"${!on ? ' selected' : ''}>关闭</option>
+            </select></div>
+          <div class="field"><label>当前待办</label>
+            <div style="padding-top:6px"><b>${b.count}</b> 家待跟进，其中 <b class="down">${b.overdue}</b> 家已逾期</div></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${N.supported() && perm !== 'granted' && perm !== 'denied'
+            ? '<button class="btn btn-primary btn-sm" data-action="notify-request">开启系统通知</button>' : ''}
+          <button class="btn btn-sm" data-action="save-notify">保存</button>
+        </div>
+        <div class="hint">${stateHtml}</div>
+      </div>`;
+  }
+
+  /* ---------- 云账号与团队 ----------
+   * 一个人用的时候这整块都可以不理，工具照样是完整的。
+   * 需要多人、需要数据各自独立时，才来这里开。
+   * 这是刻意的：**账号不能成为使用的前提**。 */
+  function accountCard() {
+    const A = window.Auth;
+    if (!A) return '';
+    const c = A.cfg();
+    const on = A.isOn();
+    const configured = A.configured();
+    const roleMap = { owner: '拥有者', admin: '管理员', member: '使用员' };
+    const role = A.role();
+
+    if (!configured) {
+      return `
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">账号与团队<span class="card-sub">一个人用不用管这页</span></div>
+          <span class="badge" style="background:#94a3b8">未配置</span>
+        </div>
+        <p class="small muted" style="margin-top:0">
+          这一块是给<b>多人共用</b>准备的：每个人一个账号，<b>各自的客户和商机互相看不见</b>，
+          管理员能看到全队的进度。
+          不配也能用 —— 工具本来就是一个人的本地作战台。
+        </p>
+        <div class="field"><label>Supabase Project URL</label>
+          <input id="cloud-url" value="${E(c.url || '')}" placeholder="https://xxxx.supabase.co"></div>
+        <div class="field"><label>anon key</label>
+          <input id="cloud-key" type="password" value="${E(c.key || '')}" placeholder="eyJhbGci..."></div>
+        <button class="btn btn-primary" data-action="save-cloud">保存并测试连接</button>
+        <div class="hint" id="cloud-hint">没有 Supabase 项目？它是免费的，注册后建个项目，
+          把项目根目录 <code>supabase.sql</code> 整段粘进 SQL Editor 执行一次就行，不用管服务器。</div>
+      </div>`;
+    }
+
+    if (!on) {
+      return `
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">账号与团队<span class="card-sub">登录后可跨设备同步、可加入团队</span></div>
+          <span class="badge" style="background:#94a3b8">未登录</span>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>邮箱</label>
+            <input id="cloud-email" type="email" placeholder="you@example.com"></div>
+          <div class="field"><label>密码</label>
+            <input id="cloud-pwd" type="password" placeholder="至少 6 位"></div>
+        </div>
+        <div class="field"><label>显示名（注册时填，团队里区分是谁）</label>
+          <input id="cloud-name" placeholder="张三"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button class="btn btn-primary" data-action="cloud-login">登录</button>
+          <button class="btn" data-action="cloud-signup">注册</button>
+          <button class="btn btn-ghost btn-sm" data-action="cloud-reset">换一个 Supabase 项目</button>
+        </div>
+        <div class="hint" id="cloud-hint">第一个注册的人自动成为<b>拥有者</b>，之后注册的默认是<b>使用员</b>，
+          需要你手动拉进团队。</div>
+      </div>`;
+    }
+
+    /* 已登录：显示身份 + 团队管理（管理员才看到成员列表） */
+    return `
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">账号与团队</div>
+          <span class="badge" style="background:#16a34a">${E(roleMap[role] || '已登录')}</span>
+        </div>
+        <p class="small" style="margin-top:0">
+          ${E(A.displayName())}　·　${E(A.email())}
+        </p>
+        <div id="team-area">${teamArea()}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+          <button class="btn btn-sm" data-action="cloud-refresh">刷新</button>
+          <button class="btn btn-sm btn-danger" data-action="cloud-logout">退出登录</button>
+        </div>
+        <div class="hint" id="cloud-hint"></div>
+      </div>`;
+  }
+
+  /* 团队区：管理员看得到成员表，普通成员只看到自己这一行。
+   * 成员列表要异步拉，所以这里先给个占位，由 ui.js 拿到数据后填。 */
+  function teamArea() {
+    const A = window.Auth;
+    if (!A || !A.isOn()) return '';
+    if (!A.isAdmin()) {
+      return `<div class="hint">你在这个团队里的角色是<b>使用员</b>：只能看到自己的客户和商机，
+        看不到别人的。这是件好事 —— 你的客户就是你的。</div>`;
+    }
+    return `<div class="hint">你是<b>${A.role() === 'owner' ? '拥有者' : '管理员'}</b>：
+      能看到全队的进度，但<b>改不动</b>别人的客户和报价。
+      成员的 API Key 和私有设置你同样看不到。</div>
+      <div id="team-members"><span class="muted small">正在读取成员…</span></div>`;
+  }
+
   /* ============================================================
    * 6. 设置
    * ============================================================ */
@@ -974,6 +1140,8 @@ window.Views = (function () {
       <div class="hint">${E(healthBasisText())}把你最近成交的单子多记几次阶段变化，判断会越来越准。</div>
     </div>
 
+    ${accountCard()}
+
     <div class="card">
       <div class="card-head">
         <div class="card-title">云同步<span class="card-sub">手机和电脑自动一致，断网照样用</span></div>
@@ -1008,9 +1176,19 @@ window.Views = (function () {
       <div class="field"><label>同步方式</label>
         <select id="sync-mode">
           <option value="off"${mode === 'off' ? ' selected' : ''}>关闭（仅存本机）</option>
-          <option value="http"${mode === 'http' ? ' selected' : ''}>自建 / 兼容服务器（推荐）</option>
-          <option value="supabase"${mode === 'supabase' ? ' selected' : ''}>Supabase / 云开发 REST</option>
+          <option value="http"${mode === 'http' ? ' selected' : ''}>自建 / 兼容服务器（一个人多台设备）</option>
+          <option value="supabase"${mode === 'supabase' ? ' selected' : ''}>Supabase 空间（一个人多台设备）</option>
+          <option value="cloud"${mode === 'cloud' ? ' selected' : ''}>Supabase 账号（多人 / 团队，数据各自独立）</option>
         </select>
+      </div>
+
+      <div id="sync-cloud-fields" hidden>
+        <div class="hint">
+          账号模式按<b>记录</b>同步，而不是整份覆盖 —— 你和同事各改各的客户，互不影响。
+          「谁能看见谁」由数据库的行级安全策略决定，跟前端无关：
+          <b>使用员只见自己的，管理员可见全队但改不动</b>。
+          ${window.Auth && window.Auth.isOn() ? '' : '<br><span class="down">先在上面的「账号与团队」里登录，这个模式才跑得起来。</span>'}
+        </div>
       </div>
 
       <div id="sync-http-fields">
@@ -1057,20 +1235,30 @@ window.Views = (function () {
       <div class="card">
         <div class="card-head"><div class="card-title">AI 助手（可选增强）</div></div>
         <p class="small muted" style="margin-top:0">
-          不配置也能用。配置后可在「AI 助手」页生成跟进话术、周报、输单复盘、客户作战建议。
+          不配置也能用。配置后可在「AI 助手」页生成跟进话术、周报、输单复盘、客户作战建议<b>和作战简报</b>。
           API Key 只保存在本机浏览器，直连你填的服务商，不会经过任何第三方服务器。
         </p>
-        <details>
+        <details ${ai.key ? '' : 'open'}>
           <summary style="cursor:pointer;color:var(--primary);font-weight:600;font-size:13px;margin-bottom:10px">展开 API 配置</summary>
+          ${aiProviderPicker(ai)}
           <div class="field"><label>接口地址（OpenAI 兼容格式）</label>
             <input id="ai-base" value="${E(ai.base || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1"></div>
           <div class="field"><label>API Key</label>
             <input id="ai-key" type="password" value="${E(ai.key || '')}" placeholder="sk-..."></div>
           <div class="field"><label>模型名</label>
-            <input id="ai-model" value="${E(ai.model || 'deepseek-chat')}" placeholder="deepseek-chat"></div>
-          <button class="btn btn-primary" data-action="save-ai">保存并测试连接</button>
+            <div style="display:flex;gap:6px">
+              <input id="ai-model" value="${E(ai.model || 'deepseek-chat')}" placeholder="deepseek-chat" style="flex:1">
+              <button class="btn btn-sm" data-action="ai-list-models" title="从服务商拉取可用模型">拉取</button>
+            </div></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button class="btn btn-primary" data-action="save-ai">保存并测试连接</button>
+            <button class="btn btn-sm" data-action="ai-test">只测连接</button>
+          </div>
+          <div class="hint" id="ai-hint">${ai.key ? '已配置。测试通过就能在「AI 助手」页用。' : '选一家服务商、填 Key，模型名会自动带上默认值。标了「免费」的适合先试试。'}</div>
         </details>
       </div>
+
+      ${notifyCard()}
 
       <div class="card">
         <div class="card-head"><div class="card-title">安装到手机 / PWA</div></div>
@@ -1129,6 +1317,8 @@ window.Views = (function () {
               <option value="weekly" ${ctx.scenario === 'weekly' ? 'selected' : ''}>生成本周周报</option>
               <option value="lost" ${ctx.scenario === 'lost' ? 'selected' : ''}>输单复盘与改进建议</option>
               <option value="battle" ${ctx.scenario === 'battle' ? 'selected' : ''}>客户作战建议</option>
+              <option value="intel" ${ctx.scenario === 'intel' ? 'selected' : ''}>客户作战简报（六段式）</option>
+              <option value="advise" ${ctx.scenario === 'advise' ? 'selected' : ''}>话术军火：客户这句话怎么接</option>
             </select>
           </div>
           <div class="field">
@@ -1163,6 +1353,10 @@ window.Views = (function () {
         <div><b>本周周报</b><p class="small muted">汇总本周新增客户、推进的商机、已成交金额、下周重点动作，可直接粘贴给老板。</p></div>
         <div><b>输单复盘</b><p class="small muted">读取所有输单记录，归纳输单原因分布，给出 3 条可执行的改进动作。</p></div>
         <div><b>客户作战建议</b><p class="small muted">基于客户画像和商机阶段，给出下一步该做什么、该找谁、该避开什么。</p></div>
+        <div><b>客户作战简报</b><p class="small muted">见客户前的六段式准备：背景、行业痛点、决策人关心什么、中英文开场白、雷区。
+          <b>没有联网</b>，凡是推测的地方会标注「待核实」——宁可说不确定，也不编得像亲眼见过。</p></div>
+        <div><b>话术军火</b><p class="small muted">把客户那句让你卡壳的原话粘进去，先从<b>你自己的话术库</b>里找参考，
+          再让 AI 改写成一段能直接发出去的话。检索在本地完成，断网也能找到素材。</p></div>
       </div>
     </div>`;
   }

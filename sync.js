@@ -1,11 +1,16 @@
 /* ============================================================
  * 销冠助手 · 云同步引擎（Local-first）
  *
+ * 三种模式：
+ *   http     —— 自建/兼容后端，整包快照（一个人多设备，最省事）
+ *   supabase —— Supabase 表存整包快照（同上，只是换个存放地）
+ *   cloud    —— Supabase 账号，**按记录同步**（多人用这个）
+ *
  * 设计原则：
  *   1. 本地永远是权威数据源，云端只是同步通道。断网、服务器挂了，工具照常能用。
- *   2. 同步单位是整包快照（数据量小，几十 KB，最简单也最不容易出错）。
- *   3. 冲突策略：逐条 Last-Write-Wins（比 updatedAt），删除用墓碑（deleted 标记）。
- *   4. 单人顺序操作下 100% 正确；多人同时改同一条记录，后写的赢（个人工具可接受）。
+ *   2. 整包快照只适合一个人用；多人必须按记录同步，否则会互相覆盖（见 cloudAdapter）。
+ *   3. 冲突策略：Last-Write-Wins（比 updatedAt），删除用墓碑（deleted 标记）。
+ *   4. 「谁能看见谁」交给数据库 RLS，前端不做权限判断——前端判断绕得过去，RLS 绕不过去。
  * ============================================================ */
 window.Sync = (function () {
   const S = Store;
@@ -175,8 +180,173 @@ window.Sync = (function () {
     }
   };
 
+  /* ---------- 适配器：Supabase 账号（记录级，多人） ----------
+   *
+   * 为什么多人必须换掉整包快照，有三条理由，按分量排序：
+   *
+   * 一、**归属没法做**（这是决定性的）。
+   *   整包快照是「一个空间 = 一份完整状态」。两个人共用一个空间，
+   *   云端躺着的就是一份混在一起的 JSON，数据库压根分不清哪条客户是谁的。
+   *   于是 RLS 无用武之地，权限、隔离、管理员视图全都没法落地。
+   *   按记录存之后，每条都带 user_id，隔离才能在数据库层真正生效。
+   *
+   * 二、**并发窗口里云端会短暂不完整**。
+   *   两人几乎同时同步时，都是「先拉、再改、后推」。
+   *   后推的那份会把先推的改动在云端挤掉——虽然有 merge 兜底，
+   *   但在这个窗口里第三个人拉到的就是残缺数据。
+   *   按记录推，后推的只覆盖自己改的那条，别人的原地不动。
+   *
+   * 三、**流量**。改一条客户要传整份快照，几百条记录时无所谓，
+   *   几千条跟进记录时每次同步都搬一遍就浪费了。
+   *
+   * 顺带纠正一个容易夸大的说法：整包快照**不至于**把对方全部改动抹掉，
+   *   因为合并是逐条比 updatedAt 的。它的毛病在上面三条，不在「互相删库」。
+   *
+   * 另外，「谁能看见谁」完全交给数据库 RLS，
+   *   这里一个权限判断都不写——写了也不可靠，前端判断是能绕过去的。 */
+  const cloudAdapter = {
+    label: 'Supabase 账号',
+    async pull(c) {
+      const since = c.pullCursor || '1970-01-01T00:00:00Z';
+      const rows = await Auth.api(
+        '/rest/v1/records?user_id=eq.' + encodeURIComponent(Auth.userId()) +
+        '&updated_at=gt.' + encodeURIComponent(since) +
+        '&select=kind,id,data,deleted,updated_at&order=updated_at.asc&limit=2000',
+        { method: 'GET' });
+      return { rows: rows || [] };
+    },
+    async push(c, changes) {
+      if (!changes.length) return null;
+      const tid = Auth.teamId() || null;
+      const body = changes.map(r => ({
+        user_id: Auth.userId(),
+        kind: r.kind,
+        id: r.id,
+        team_id: tid,
+        data: r.data,
+        deleted: !!r.deleted
+      }));
+      /* 分批：一次塞几千条 URL 和 body 都容易超限，500 一批比较稳 */
+      for (let i = 0; i < body.length; i += 500) {
+        await Auth.api('/rest/v1/records?on_conflict=user_id,kind,id', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(body.slice(i, i + 500))
+        });
+      }
+      return null;
+    },
+    async pullSettings() {
+      const rows = await Auth.api(
+        '/rest/v1/user_settings?user_id=eq.' + encodeURIComponent(Auth.userId()) +
+        '&select=data,updated_at', { method: 'GET' });
+      return rows && rows[0] ? rows[0] : null;
+    },
+    async pushSettings(data) {
+      await Auth.api('/rest/v1/user_settings?on_conflict=user_id', {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ user_id: Auth.userId(), data: data })
+      });
+    }
+  };
+
+  /* 本地自 ts 之后变过的记录。
+   * 示例数据依然不上云，但示例的墓碑要放行——理由同 pushPayload()。 */
+  function changedSince(ts) {
+    const out = [];
+    S.SYNC_KEYS.forEach(k => {
+      (S.state[k] || []).forEach(r => {
+        if (r.demo && !r.deleted) return;
+        if ((Number(r.updatedAt) || 0) > ts) {
+          out.push({ kind: k, id: r.id, data: r, deleted: !!r.deleted });
+        }
+      });
+    });
+    return out;
+  }
+
+  /* 把云端记录逐条并回本地（记录级 LWW）。
+   * 返回实际改动了几条。 */
+  function applyRecords(rows) {
+    if (!rows || !rows.length) return 0;
+    let changed = 0;
+    applying = true;
+    try {
+      rows.forEach(r => {
+        /* 云端返回什么不完全由我们说了算：网关、代理、手写的数据都可能掺进
+         * null 或缺字段的行。同步是后台跑的，在这里抛异常没有任何人能看到，
+         * 只会让整个同步静默停摆——所以宁可跳过也不能崩。 */
+        if (!r || !r.id || S.SYNC_KEYS.indexOf(r.kind) < 0) return;
+        if (!Array.isArray(S.state[r.kind])) S.state[r.kind] = [];
+        const arr = S.state[r.kind];
+        const idx = arr.findIndex(x => x.id === r.id);
+        const remote = Object.assign({}, (r.data || {}), { id: r.id, deleted: !!r.deleted });
+        if (idx < 0) {
+          arr.push(remote);
+          changed++;
+          return;
+        }
+        const local = arr[idx];
+        const rt = Number(remote.updatedAt) || 0;
+        const lt = Number(local.updatedAt) || 0;
+        if (rt > lt) { arr[idx] = remote; changed++; }
+        /* 远端更旧就保持本地不动——下次推的时候本地这条会被带上去 */
+      });
+      if (changed) S.save();
+    } finally { applying = false; }
+    return changed;
+  }
+
+  /* 设置整份合并（谁新谁赢），但同步配置永远以本地为准：
+   * 否则云端一份旧配置下来，会把用户刚填的地址和令牌冲掉，
+   * 表现就是「同步莫名其妙失效了」——这个坑以前踩过。 */
+  function applyCloudSettings(remote) {
+    if (!remote || !remote.data) return false;
+    const rs = remote.data;
+    const ls = S.state.settings || {};
+    const rAt = Number(rs.updatedAt) || 0;
+    const lAt = Number(ls.updatedAt) || 0;
+    if (rAt <= lAt) return false;
+    S.state.settings = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+    S.save();
+    return true;
+  }
+
+  /* 账号模式一次完整的往返：先拉后推，推完记游标 */
+  async function cloudSync(c) {
+    const pulled = await cloudAdapter.pull(c);
+    const n = applyRecords(pulled.rows);
+
+    /* 拉游标用云端最后一条的时间：下次只拉更新的部分。
+     * 一条都没拉到就保持原游标不动。 */
+    if (pulled.rows && pulled.rows.length) {
+      saveCfg({ pullCursor: pulled.rows[pulled.rows.length - 1].updated_at });
+    }
+
+    /* 设置单独往返一次，只处理自己的那份 */
+    const rs = await cloudAdapter.pullSettings();
+    const setChanged = applyCloudSettings(rs);
+    const ls = S.state.settings || {};
+    const remoteSettingsAt = rs && rs.updated_at ? Date.parse(rs.updated_at) : 0;
+    if ((Number(ls.updatedAt) || 0) > (remoteSettingsAt || 0)) {
+      await cloudAdapter.pushSettings(ls);
+    }
+
+    /* 推：只推上次推之后变过的。
+     * 游标回退 5 秒是刻意的——推送期间用户很可能还在改东西，
+     * 这 5 秒的宽限能保证那些改动不会被漏掉，代价只是下次多推几条。 */
+    const since = Number(c.pushCursor) || 0;
+    const changes = changedSince(since ? since - 5000 : 0);
+    await cloudAdapter.push(c, changes);
+    saveCfg({ pushCursor: Date.now() });
+
+    return { pulled: n, pushed: changes.length, settingsChanged: setChanged };
+  }
+
   function adapter() {
     const c = cfg();
+    if (c.mode === 'cloud') return cloudAdapter;
     return c.mode === 'supabase' ? supabaseAdapter : httpAdapter;
   }
 
@@ -188,6 +358,20 @@ window.Sync = (function () {
     busy = true;
     setStatus('syncing', manual ? '正在同步…' : '');
     try {
+      if (c.mode === 'cloud') {
+        if (!Auth.isOn()) {
+          setStatus('error', '未登录，账号同步没跑');
+          return { ok: false, msg: '未登录' };
+        }
+        const r = await cloudSync(c);
+        lastSyncAt = Date.now();
+        S.state.settings.lastSyncAt = lastSyncAt;
+        S.save();
+        setStatus('idle', '已同步 ' + new Date(lastSyncAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+        notify();
+        return { ok: true, detail: r };
+      }
+
       const ad = adapter();
       const remote = await ad.pull(c);
       if (remote) applySnapshot(remote);
@@ -259,5 +443,9 @@ window.Sync = (function () {
     setStatus('off', '');
   }
 
-  return { merge, snapshot, pushPayload, applySnapshot, sync, start, stop, on, onLocalChange, cfg, saveCfg, getStatus };
+  return {
+    merge, snapshot, pushPayload, applySnapshot,
+    changedSince, applyRecords, applyCloudSettings, cloudSync,
+    sync, start, stop, on, onLocalChange, cfg, saveCfg, getStatus
+  };
 })();
