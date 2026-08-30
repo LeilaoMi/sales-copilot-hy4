@@ -30,6 +30,8 @@ create table if not exists teams (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   owner_id    uuid references auth.users(id) on delete cascade,
+  /* 邀请码：没有它这个功能根本转不起来，原因见文件末尾的 FAQ */
+  invite_code text unique,
   created_at  timestamptz not null default now()
 );
 
@@ -58,8 +60,14 @@ begin
   select count(*) into member_count from profiles;
 
   if member_count = 0 then
-    insert into teams (name, owner_id)
-      values (coalesce(new.raw_user_meta_data->>'name', '我的团队'), new.id)
+    /* 顺手把邀请码生成好：不然第一个人想加同事进来看不到码，
+     * 会以为这个功能坏了 */
+    insert into teams (name, owner_id, invite_code)
+      values (
+        coalesce(new.raw_user_meta_data->>'name', '我的团队'),
+        new.id,
+        upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+      )
       returning id into new_team_id;
 
     insert into profiles (id, team_id, role, display_name)
@@ -243,6 +251,70 @@ create policy "settings_self" on user_settings
   with check (user_id = auth.uid());
 
 
+-- ---------- 邀请码：加入团队的唯一入口 ----------
+/* 为什么非得有这个东西：
+ *   新注册的成员 team_id 是空的，而管理员的 RLS 只看得到**同团队**的人。
+ *   于是管理员看不见新人 → 没法把他拉进来 → 他永远是空的 → 还是看不见。
+ *   这是个死循环，光靠 RLS 解不开。
+ *
+ *   所以改成「管理员亮出邀请码，成员自己输入加入」：
+ *   成员改的是**自己那一行**的 team_id，这本来就在他的权限内；
+ *   但改成哪个队由 security definer 函数按邀请码决定，
+ *   这样他没法凭空填一个 team_id 混进别人的团队。 */
+create or replace function reset_invite_code()
+returns text as $$
+declare c text;
+begin
+  if my_role() not in ('owner', 'admin') then
+    raise exception '只有管理员能重置邀请码';
+  end if;
+  if my_team_id() is null then
+    raise exception '你还没有团队';
+  end if;
+  c := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
+  update teams set invite_code = c where id = my_team_id();
+  return c;
+end;
+$$ language plpgsql security definer;
+
+create or replace function my_invite_code()
+returns text as $$
+  select invite_code from teams where id = my_team_id();
+$$ language sql security definer stable;
+
+create or replace function join_team(code text)
+returns uuid as $$
+declare tid uuid;
+begin
+  if code is null or length(trim(code)) = 0 then
+    raise exception '请填邀请码';
+  end if;
+  select id into tid from teams where invite_code = upper(trim(code));
+  if tid is null then
+    raise exception '邀请码不对，找管理员要一个';
+  end if;
+  update profiles set team_id = tid where id = auth.uid();
+  if not found then
+    raise exception '没找到你的档案，试试重新登录';
+  end if;
+  return tid;
+end;
+$$ language plpgsql security definer;
+
+/* 退出团队：成员自己可以退，管理员也能把人移出去（后者走 profiles 的 admin 策略） */
+create or replace function leave_team()
+returns void as $$
+begin
+  update profiles set team_id = null where id = auth.uid();
+end;
+$$ language plpgsql security definer;
+
+grant execute on function reset_invite_code() to authenticated;
+grant execute on function my_invite_code() to authenticated;
+grant execute on function join_team(text) to authenticated;
+grant execute on function leave_team() to authenticated;
+
+
 -- ---------- updated_at 自动维护 ----------
 drop trigger if exists records_touch on records;
 create trigger records_touch before insert or update on records
@@ -273,6 +345,17 @@ create trigger user_settings_touch before insert or update on user_settings
 -- Q: 管理员看不到成员的数据
 --    A: 成员的 team_id 是空的。让管理员在「团队」页把人加进来，
 --       或者手动：update profiles set team_id = '<团队ID>' where id = '<成员ID>';
+--
+-- Q: 管理员在团队页看不到新注册的人
+--    A: 这是设计如此，不是 bug——管理员的 RLS 只看得到**同团队**的人，
+--       而新人注册后 team_id 是空的。让管理员看见所有注册用户，
+--       等于把「谁在用这个系统」暴露给所有管理员，不划算。
+--       正路是邀请码：管理员在团队页点「重置邀请码」拿到 8 位码，
+--       新人在自己的设置页填这个码加入。
+--
+-- Q: 成员能不能自己填个 team_id 混进别人的团队
+--    A: 不能。加入必须走 join_team(code)，team_id 由邀请码在数据库里查出来，
+--       成员改的是自己那一行，但改成哪个队他说了不算。
 --
 -- Q: 我想让管理员也能改成员的数据
 --    A: 可以，但不建议。真要开：

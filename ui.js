@@ -556,6 +556,23 @@
   /* ============================================================
    * 渲染
    * ============================================================ */
+  /* 「团队」页签只对管理员露面。普通成员点了也是一片空白，徒增困惑。
+   * 单独抽成一个函数，是因为登录态是**异步**恢复的：
+   * 页面打开时先渲染一次，那时还没拿到角色；等 profile 回来，
+   * 如果没人通知界面，这个页签就永远不会出现。
+   * 这里刻意只改页签这一个元素，不整页重绘——
+   * 用户可能正填着半个表单，一次 render 就把输入清空了。 */
+  function refreshTeamTab() {
+    const t = $('#tab-team');
+    if (!t) return;
+    const show = !!(window.Auth && Auth.isOn() && Auth.isAdmin() && Auth.teamId());
+    if (t.hidden === !show) return;
+    t.hidden = !show;
+    /* 停在团队页时权限被撤了（比如被降成使用员），要跳走，
+     * 否则用户盯着一个自己没权限的页面发呆 */
+    if (view === 'team' && !show) switchView('dash');
+  }
+
   function render() {
     $$('.view').forEach(v => { v.hidden = true; });
     const sec = $('#view-' + view);
@@ -568,8 +585,14 @@
     else if (view === 'report') sec.innerHTML = V.report(filters.report);
     else if (view === 'ai') sec.innerHTML = V.ai(filters.ai);
     else if (view === 'settings') sec.innerHTML = V.settings();
+    else if (view === 'team') {
+      sec.innerHTML = V.team(boardData);
+      if (!boardData) loadBoard();      // 第一次进来才拉，拉完只刷这一屏
+    }
 
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+
+    refreshTeamTab();
 
     /* 手机上页签排不下，靠横向滚动。不把当前页签滚进视野的话，
      * 用户从别的页切回来，看到的是前几个页签，会以为这个功能是丢了的。
@@ -642,6 +665,9 @@
 
   function switchView(v) {
     view = v;
+    /* 每次进团队看板都重新拉一次：这本来就是个看实时进度的页面，
+     * 盯着一份几分钟前的旧数字没意义。 */
+    if (v === 'team') boardData = null;
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -1086,6 +1112,40 @@
           catch (e) { toast('操作失败：' + e.message, 'err'); }
           render(); loadTeam();
         });
+    },
+    'join-team': async () => {
+      const input = $('#invite-input');
+      const code = input ? input.value.trim() : '';
+      if (!code) { toast('先填邀请码', 'err'); return; }
+      try {
+        await Auth.joinTeam(code);
+        boardData = null;
+        toast('已加入团队', 'ok');
+        /* 入了队，数据要重新推一次，好让管理员那边看得到 */
+        if ((Sync.cfg().mode || 'off') === 'cloud') {
+          Sync.saveCfg({ pushCursor: 0 });
+          Promise.resolve(Sync.sync(true)).catch(() => null);
+        }
+      } catch (e) { toast('加入失败：' + e.message, 'err'); }
+      render();
+    },
+    'leave-team': async () => {
+      openModal('退出团队',
+        `<p class="small">退出后你会<b>看不到团队共享话术</b>，管理员也看不到你的进度。</p>
+         <p class="small muted">你自己的客户、商机、跟进<b>一条都不会少</b>，它们本来就只属于你。</p>`,
+        async () => {
+          try { await Auth.leaveTeam(); boardData = null; toast('已退出团队', 'ok'); }
+          catch (e) { toast('退出失败：' + e.message, 'err'); }
+          render();
+        });
+    },
+    'reset-invite': async () => {
+      try {
+        const c = await Auth.resetInviteCode();
+        toast('新邀请码：' + c, 'ok');
+        render();
+        loadTeam();
+      } catch (e) { toast('重置失败：' + e.message, 'err'); }
     },
     'team-rename': async () => {
       const input = $('#team-name-input');
@@ -1588,12 +1648,49 @@
     loadTeam();
   }
 
+  /* 团队看板的数据是异步拉的。刻意只重刷这一屏而不调 render()——
+   * render 里又会根据「没数据」触发一次加载，那就是死循环了。 */
+  let boardData = null;
+  let boardLoading = false;
+  async function loadBoard() {
+    if (boardLoading || !window.Team) return;
+    boardLoading = true;
+    try { boardData = await Team.load(); }
+    catch (e) { boardData = { rows: [], total: Team.emptyTotal(), error: e.message }; }
+    boardLoading = false;
+    if (view === 'team') {
+      const sec = $('#view-team');
+      if (sec) sec.innerHTML = V.team(boardData);
+    }
+  }
+
   /* 管理员的成员列表是异步拉的，渲染时拿不到，只能事后填。
    * 普通成员调 teamMembers() 会拿到空数组（RLS 拦的），这里也就没什么可显示。 */
   async function loadTeam() {
     const box = $('#team-members');
     if (!box || !window.Auth || !Auth.isOn() || !Auth.isAdmin()) return;
     box.innerHTML = '<span class="muted small">正在读取成员…</span>';
+
+    /* 邀请码：这是把人加进团队的唯一入口，管理员必须看得见 */
+    const ia = $('#invite-area');
+    if (ia) {
+      ia.innerHTML = '<span class="muted small">正在读取邀请码…</span>';
+      try {
+        let code = await Auth.inviteCode();
+        if (!code) code = await Auth.resetInviteCode();   // 老团队可能没生成过
+        ia.innerHTML = `
+          <div class="field"><label>团队邀请码</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <code id="invite-code" style="font-size:18px;letter-spacing:2px;font-weight:700">${E(String(code))}</code>
+              <button class="btn btn-sm" data-action="reset-invite">重置</button>
+            </div></div>
+          <div class="hint">让同事注册后填这个码加入。
+            他加入之后<b>仍然只有自己能看自己的客户</b>，你只是能看到全队进度。</div>`;
+      } catch (e) {
+        ia.innerHTML = `<span class="down small">邀请码读取失败：${E(e.message)}</span>`;
+      }
+    }
+
     let members = [];
     try { members = await Auth.teamMembers(); } catch (e) {
       box.innerHTML = `<span class="down small">读取失败：${E(e.message)}</span>`;
@@ -1635,7 +1732,10 @@
     S.load();
     /* 账号初始化必须在 render 之前：登录态决定设置页显示哪一块。
      * 没登录时这里全是空操作，不会发任何请求，也不会弹出任何东西。 */
-    if (window.Auth) Auth.init();
+    if (window.Auth) {
+      Auth.init();
+      Auth.on(refreshTeamTab);      // profile 异步回来后，把页签补上
+    }
     bind();
     render();
 

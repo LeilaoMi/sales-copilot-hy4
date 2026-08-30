@@ -62,6 +62,9 @@
   <button class="tab" data-view="scripts">话术库</button>
   <button class="tab" data-view="report">周报</button>
   <button class="tab" data-view="ai">AI 助手</button>
+  <!-- 团队看板只对管理员显示：普通成员看到它只会是一片空白，徒增困惑。
+       显隐由 ui.js 判断角色后决定。 -->
+  <button class="tab" data-view="team" id="tab-team" hidden>团队</button>
   <button class="tab" data-view="settings">设置</button>
 </nav>
 
@@ -73,6 +76,7 @@
   <section class="view" id="view-scripts" hidden></section>
   <section class="view" id="view-report" hidden></section>
   <section class="view" id="view-ai" hidden></section>
+  <section class="view" id="view-team" hidden></section>
   <section class="view" id="view-settings" hidden></section>
 </main>
 
@@ -101,6 +105,8 @@
 <script src="ai.js"></script>
 <script src="sync.js"></script>
 <script src="notify.js"></script>
+<!-- team.js 依赖 Auth 拉全队记录，排在它后面 -->
+<script src="team.js"></script>
 <script src="ui.js"></script>
 </body>
 </html>

@@ -259,6 +259,40 @@ window.Auth = (function () {
     return true;
   }
 
+  /* ---------- 邀请码 ----------
+   * 为什么必须有这东西：管理员的 RLS 只看得到同团队的人，
+   * 而新人注册后 team_id 是空的 —— 管理员看不见他，也就拉不进来，
+   * 于是永远是空的。这是个死循环，得靠「成员自己拿着码进来」解开。
+   * 具体原因写在 supabase.sql 的 FAQ 里。 */
+  async function rpc(name, args) {
+    return api('/rest/v1/rpc/' + name, {
+      method: 'POST',
+      body: JSON.stringify(args || {})
+    });
+  }
+  const inviteCode = () => rpc('my_invite_code').catch(() => '');
+  const resetInviteCode = () => rpc('reset_invite_code');
+  async function joinTeam(code) {
+    const tid = await rpc('join_team', { code: String(code || '').trim() });
+    await loadProfile(true);
+    return tid;
+  }
+  async function leaveTeam() {
+    await rpc('leave_team');
+    await loadProfile(true);
+  }
+
+  /* 全队记录。只有管理员调得动——RLS 里 records 的管理员策略是只读的 select，
+   * 普通成员调这个只会拿到空数组（甚至 403），这不是 bug，是隔离在起作用。
+   * 拿到的东西不进本地库，只用于团队看板的一次性展示。 */
+  async function teamRecords() {
+    if (!isAdmin() || !teamId()) return [];
+    try {
+      return await api('/rest/v1/records?team_id=eq.' + encodeURIComponent(teamId()) +
+        '&deleted=eq.false&select=user_id,kind,id,data,deleted&limit=2000', { method: 'GET' });
+    } catch (e) { return []; }
+  }
+
   /* ---------- 测试连接：填完配置先探一下 ---------- */
   async function testConn() {
     if (!configured()) throw new Error('还没填地址和 key');
@@ -286,7 +320,8 @@ window.Auth = (function () {
     signUp, signIn, signOut, refresh, api,
     isOn, userId, email, isExpired,
     loadProfile, role, isAdmin, teamId, displayName,
-    teamMembers, addToTeam, setRole, removeFromTeam, renameTeam,
+    teamMembers, teamRecords, addToTeam, setRole, removeFromTeam, renameTeam,
+    inviteCode, resetInviteCode, joinTeam, leaveTeam,
     get profile() { return profile; }
   };
 })();

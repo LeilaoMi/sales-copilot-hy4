@@ -1053,18 +1053,40 @@ window.Views = (function () {
       </div>`;
   }
 
-  /* 团队区：管理员看得到成员表，普通成员只看到自己这一行。
-   * 成员列表要异步拉，所以这里先给个占位，由 ui.js 拿到数据后填。 */
+  /* 团队区：管理员看得到成员表和邀请码，普通成员只看到自己这一行。
+   * 成员列表和邀请码都要发请求，所以这里先给占位，由 ui.js 拿到数据后填。 */
   function teamArea() {
     const A = window.Auth;
     if (!A || !A.isOn()) return '';
+
+    /* 还没入队：给他一个填邀请码的入口。
+     * 没有这个入口就是死路一条——管理员看不见未入队的人，没法主动拉。 */
+    if (!A.teamId()) {
+      return `
+        <p class="small muted" style="margin-top:0">
+          你还没有加入任何团队。现在这样也能用：数据存在你自己的账号下，跟谁的都不混。
+        </p>
+        <div class="field"><label>有邀请码？填进来加入团队</label>
+          <div style="display:flex;gap:6px">
+            <input id="invite-input" placeholder="8 位邀请码" style="flex:1;text-transform:uppercase">
+            <button class="btn btn-primary" data-action="join-team">加入</button>
+          </div></div>
+        <div class="hint">邀请码找你们的管理员要（在他的「账号与团队」卡片里）。
+          加入后你的客户<b>仍然只有你自己能看</b>，管理员只是能看到进度。</div>`;
+    }
+
     if (!A.isAdmin()) {
       return `<div class="hint">你在这个团队里的角色是<b>使用员</b>：只能看到自己的客户和商机，
-        看不到别人的。这是件好事 —— 你的客户就是你的。</div>`;
+        看不到别人的。这是件好事 —— 你的客户就是你的。</div>
+        <div style="margin-top:8px">
+          <button class="btn btn-sm btn-danger" data-action="leave-team">退出团队</button>
+        </div>`;
     }
+
     return `<div class="hint">你是<b>${A.role() === 'owner' ? '拥有者' : '管理员'}</b>：
       能看到全队的进度，但<b>改不动</b>别人的客户和报价。
       成员的 API Key 和私有设置你同样看不到。</div>
+      <div id="invite-area"><span class="muted small">正在读取邀请码…</span></div>
       <div id="team-members"><span class="muted small">正在读取成员…</span></div>`;
   }
 
@@ -1293,6 +1315,83 @@ window.Views = (function () {
   }
 
   /* ============================================================
+   * 6.5 团队看板（只有管理员看得到）
+   *
+   * 刻意做成「进度看板」而不是「客户列表」：
+   *   老板需要知道谁手上活多、谁这个月没开张、谁有单子晾着了，
+   *   但不需要（也不应该）随手翻到某个销售的具体客户和联系方式。
+   *   销售的饭碗，连老板都不该随手翻。
+   * ============================================================ */
+  function team(data) {
+    const A = window.Auth;
+    if (!A || !A.isOn() || !A.isAdmin()) {
+      return emptyBox('只有管理员能看团队看板');
+    }
+    if (data && data.error) {
+      return `<div class="empty-box">
+        <p><b>读不到团队数据</b></p>
+        <p class="muted small">${E(data.error)}</p>
+        <p class="muted small">如果刚把人拉进团队，等他们各自同步一次再来看。</p>
+      </div>`;
+    }
+    if (!data || !data.rows || !data.rows.length) {
+      return `<div class="empty-box">
+        <p><b>团队里还没有数据</b></p>
+        <p class="muted small">成员加入团队后，需要在自己的设备上同步一次，数据才会出现在这里。</p>
+      </div>`;
+    }
+
+    const t = data.total;
+    return `
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">全队概览<span class="card-sub">${E(data.month)} · 共 ${t.members} 人</span></div>
+      </div>
+      <div class="grid g4">
+        ${kpi('在谈商机', t.openDeals + ' 个', S.moneyFull(t.openAmount))}
+        ${kpi('本月成交', t.wonThisMonth + ' 单', S.moneyFull(t.wonAmount))}
+        ${kpi('本月丢单', t.lostThisMonth + ' 单', t.lostThisMonth ? '要问问为什么' : '暂无')}
+        ${kpi('该跟没跟', t.overdue + ' 家', t.overdue ? t.overdue + ' 家客户过了跟进日' : '都跟上了')}
+      </div>
+      <div class="hint">这里看到的是<b>汇总数字</b>，看不到任何客户的具体名字、联系人和谈话内容。
+        那些是销售自己的，连管理员也翻不到——这是数据库层挡住的，不是界面藏起来的。</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">每个人的进度</div></div>
+      <table class="tbl">
+        <thead><tr>
+          <th>成员</th><th>客户</th><th>在谈</th><th>在谈金额</th>
+          <th>本月成交</th><th>本月丢单</th><th>逾期客户</th><th>最近跟进</th>
+        </tr></thead>
+        <tbody>
+        ${data.rows.map(r => `
+          <tr>
+            <td><b>${E(r.name)}</b>${r.role === 'owner' ? ' <span class="badge">拥有者</span>'
+              : (r.role === 'admin' ? ' <span class="badge">管理员</span>' : '')}
+              ${r.id === A.userId() ? '<span class="muted small">（我）</span>' : ''}</td>
+            <td>${r.customers}</td>
+            <td>${r.openDeals}</td>
+            <td>${E(S.moneyFull(r.openAmount))}</td>
+            <td class="${r.wonThisMonth ? 'up' : ''}">${r.wonThisMonth ? r.wonThisMonth + ' 单' : '—'}</td>
+            <td class="${r.lostThisMonth ? 'down' : ''}">${r.lostThisMonth ? r.lostThisMonth + ' 单' : '—'}</td>
+            <td class="${r.overdue ? 'down' : ''}">${r.overdue || '—'}</td>
+            <td class="${r.lastFollowAt && daysSince(r.lastFollowAt) >= 3 ? 'down' : 'muted'}">
+              ${r.lastFollowAt ? E(r.lastFollowAt) + '（' + daysSince(r.lastFollowAt) + ' 天前）' : '还没记录'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="hint">按在谈金额排序。「最近跟进」标红的是<b>三天以上没动静</b>的——
+        不是催他，是该问问是不是卡住了。</div>
+    </div>`;
+  }
+
+  function daysSince(dateStr) {
+    const n = S.diffDays ? S.diffDays(dateStr) : null;
+    return n === null ? 0 : Math.max(0, -n);
+  }
+
+  /* ============================================================
    * 7. AI 助手
    * ============================================================ */
   function ai(ctx) {
@@ -1489,6 +1588,6 @@ window.Views = (function () {
     </div>`;
   }
 
-  return { dash, customers, customerDetail, deals, followups, scripts, scriptResults, report, settings, ai,
+  return { dash, customers, customerDetail, deals, followups, scripts, scriptResults, report, settings, ai, team,
     stageBadge, levelTag, morningBrief, healthCard, healthDot, PUBLIC_ENDPOINT };
 })();
