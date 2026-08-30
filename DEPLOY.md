@@ -126,7 +126,7 @@ Supabase 是同步数据的"存放地"。免费版对个人完全够用。
 在项目目录下执行（macOS / Linux 终端，Windows 用 Git Bash）：
 
 ```bash
-cp index.html styles.css manifest.json *.js *.png public/
+node build.js --pages
 ```
 
 执行完 `public/` 里应该有：所有 `.js`、`styles.css`、`index.html`、
@@ -156,7 +156,7 @@ cp index.html styles.css manifest.json *.js *.png public/
 
    | 框 | 填什么 |
    |---|---|
-   | Build command | `cp index.html styles.css manifest.json *.js *.png public/` |
+   | Build command | `node build.js --pages` |
    | Build output directory | `public` |
 
 4. 保存并部署
@@ -167,7 +167,7 @@ cp index.html styles.css manifest.json *.js *.png public/
 ### 方式三：命令行（`wrangler.toml` 就是给它用的）
 
 ```bash
-cp index.html styles.css manifest.json *.js *.png public/
+node build.js --pages
 npx wrangler pages deploy public
 ```
 
