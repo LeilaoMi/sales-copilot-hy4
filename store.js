@@ -142,15 +142,45 @@ window.Store = (function () {
     if (fresh.length) {
       const freshTitles = {};
       fresh.forEach(x => { freshTitles[x.title] = 1; });
-      const missing = fresh.filter(x => !state.scripts.some(y => y.title === x.title));
-      if (missing.length) {
-        const keep = state.scripts.filter(x => !(x.builtin && !freshTitles[x.title]));
-        const have = {};
-        keep.forEach(x => { have[x.title] = 1; });
-        missing.forEach(x => { if (!have[x.title]) keep.push(x); });
-        keep.forEach(x => { if (!Array.isArray(x.tags)) x.tags = []; });
-        state.scripts = keep;
-      }
+
+      /* 第一步：按标题合并重复的**内置**话术。
+       *
+       * 为什么要做：内置话术的 id 以前是 Math.random() 生成的（见 playbook.js 里
+       * stableId 的注释）。两台设备各生成一套、id 互不相同，云同步按 id 合并，
+       * 于是手机 48 条 + 电脑 48 条 = 云端 96 条标题重复的话术，
+       * 每多一台设备再多 48 条。
+       *
+       * 两个必须注意的点：
+       *   一、**只合并内置的**。用户自己攒的话术哪怕重名也是他的东西，
+       *       替他删掉一条不可接受。
+       *   二、重复项不能直接从数组里 splice 掉。那样云端的那条孤儿不会被删，
+       *       下次同步又被拉回本地，表现就是「清了又长回来」。
+       *       必须留墓碑（deleted + 新的 updatedAt），同步时才会真的删掉云端那条。 */
+      const keptBuiltin = {};
+      state.scripts.forEach(x => {
+        if (!x || !x.title || !x.builtin) return;
+        const prev = keptBuiltin[x.title];
+        if (!prev) { keptBuiltin[x.title] = x; return; }
+        const pt = Number(prev.updatedAt) || 0;
+        const xt = Number(x.updatedAt) || 0;
+        if (xt > pt) {
+          prev.deleted = true; prev.updatedAt = Date.now();
+          keptBuiltin[x.title] = x;
+        } else {
+          x.deleted = true; x.updatedAt = Date.now();
+        }
+      });
+
+      /* 第二步：旧版内置话术视为已被新版覆盖 → 移除 */
+      let keep = state.scripts.filter(x => !(x.builtin && !freshTitles[x.title]));
+
+      /* 第三步：补齐还缺的内置话术 */
+      const have = {};
+      keep.forEach(x => { have[x.title] = 1; });
+      fresh.forEach(x => { if (!have[x.title]) keep.push(x); });
+
+      keep.forEach(x => { if (!Array.isArray(x.tags)) x.tags = []; });
+      state.scripts = keep;
     }
 
     if (!state.deviceId) state.deviceId = 'dev-' + uid();

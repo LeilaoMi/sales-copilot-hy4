@@ -518,9 +518,34 @@ window.Playbook = (function () {
       + '真要延期，提前说 + 说清原因 + 给新日期，比被他先发现强一百倍。']
   ];
 
+  /* 内置话术的 id 必须是**稳定**的 —— 这段代码以前不是这样的，
+   * 值得把当时的坑记下来，免得以后有人又改回 Math.random()：
+   *
+   *   早先这里写的是 'sc-' + Math.random().toString(36).slice(2, 10)。
+   *   单看没问题：一个本地工具，id 只要不重复就行。
+   *   但加了云同步之后，每台设备生成的内置话术 id 全都不同，
+   *   而云端是按 id 逐条合并的（applyRecords 里 findIndex(x => x.id === r.id)），
+   *   于是手机推 48 条、电脑再推 48 条，云端认成 96 条不同的话术，
+   *   标题一模一样地堆在那里。换第三台设备就是 144 条。
+   *
+   *   本地之所以没暴露，是因为 store.js 的 migrate 按**标题**去重，
+   *   把重复吃掉了。同步走的是 id，两条链路判断重复的口径不一致，
+   *   于是「本地看着正常，同步完就翻倍」。
+   *
+   * 现在按标题哈希出固定 id：同一条话术在任何设备上都是同一个 id，
+   * 多设备同步时会被认成同一条，不会累加。标题在 SEED 里是唯一的（48/48）。
+   */
+  function stableId(title) {
+    let h = 0;
+    for (let i = 0; i < title.length; i++) {
+      h = ((h << 5) - h + title.charCodeAt(i)) | 0;   // 经典 djb2 变体，够用且零依赖
+    }
+    return 'sc-' + (h >>> 0).toString(36);
+  }
+
   function defaultScripts() {
     return SEED.map(([category, title, tags, content]) => ({
-      id: 'sc-' + Math.random().toString(36).slice(2, 10),
+      id: stableId(title),
       category: category,
       title: title,
       tags: tags,
