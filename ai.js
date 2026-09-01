@@ -28,7 +28,16 @@ window.AI = (function () {
    *   000     = 沙箱网络到不了，没能实测
    * 实测结果记在每个分组的注释里。标「未实测」的那几家（OpenAI / Mistral /
    * xAI / Gemini / Perplexity / Anthropic）是从沙箱连不上的，用的是各家
-   * 官方文档的公开地址，第一次用如果报 404，按提示里的常见写法试 /v4、/v1。 */
+   * 官方文档的公开地址，第一次用如果报 404，按提示里的常见写法试 /v4、/v1。
+   *
+   * ── 另一个字段：cors ──
+   * 「地址对」和「浏览器能用」是两回事，别混为一谈。
+   * 这个工具跑在浏览器里，请求全是浏览器直发，所以一家服务商
+   * 接口存在 ≠ 浏览器能调。实测 21 家里有 5 家（豆包 / 讯飞星火 /
+   * Groq / Cerebras / SambaNova）的 /models 一个跨域头都不给，
+   * 浏览器直连必被拦，报的还是那句看不懂的 Failed to fetch。
+   * cors: false 就是这 5 家：下拉里带警示标记，
+   * 真连不上时 netFailReason 会点名说是跨域问题，而不是让用户瞎猜。 */
   const PROVIDERS = {
     /* ── 国内直连：2026-09-01 实测 12 家全部返回 401/403，端点都有效 ── */
     deepseek: { g: 'cn', name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: '' },
@@ -39,9 +48,9 @@ window.AI = (function () {
     qwen: { g: 'cn', name: '通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', note: '部分模型有免费额度' },
     siliconflow: { g: 'cn', name: '硅基流动', base: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', note: '有免费模型' },
     moonshot: { g: 'cn', name: 'Moonshot Kimi', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', note: '' },
-    doubao: { g: 'cn', name: '豆包（火山方舟）', base: 'https://ark.cn-beijing.volces.com/api/v3', model: '', note: '需在方舟控制台建推理接入点，模型名填接入点 ID' },
+    doubao: { g: 'cn', cors: false, name: '豆包（火山方舟）', base: 'https://ark.cn-beijing.volces.com/api/v3', model: '', note: '需在方舟控制台建推理接入点，模型名填接入点 ID' },
     qianfan: { g: 'cn', name: '百度千帆', base: 'https://qianfan.baidubce.com/v2', model: 'ernie-4.0-8k', note: '部分模型免费' },
-    spark: { g: 'cn', name: '讯飞星火', base: 'https://spark-api-open.xf-yun.com/v1', model: 'generalv3.5', note: '有免费额度' },
+    spark: { g: 'cn', cors: false, name: '讯飞星火', base: 'https://spark-api-open.xf-yun.com/v1', model: 'generalv3.5', note: '有免费额度' },
     hunyuan: { g: 'cn', name: '腾讯混元', base: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbo', note: '部分模型免费' },
     stepfun: { g: 'cn', name: '阶跃星辰', base: 'https://api.stepfun.com/v1', model: 'step-1-8k', note: '' },
     lingyi: { g: 'cn', name: '零一万物', base: 'https://api.lingyiwanwu.com/v1', model: 'yi-large', note: '' },
@@ -58,15 +67,15 @@ window.AI = (function () {
     azure: { g: 'intl', name: 'Azure OpenAI', base: '', model: '', note: '填 https://你的资源名.openai.azure.com/openai/deployments/部署名' },
     anthropic: { g: 'intl', name: 'Anthropic Claude', base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5', note: '官方 OpenAI 兼容层，未实测' },
     gemini: { g: 'intl', name: 'Google Gemini', base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash', note: '有免费额度，未实测' },
-    groq: { g: 'intl', name: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant', note: '免费，国内访问不稳' },
+    groq: { g: 'intl', cors: false, name: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant', note: '免费，国内访问不稳' },
     mistral: { g: 'intl', name: 'Mistral', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest', note: '部分免费，未实测' },
     xai: { g: 'intl', name: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-3-mini', note: '未实测' },
     openrouter: { g: 'intl', name: 'OpenRouter', base: 'https://openrouter.ai/api/v1', model: '', note: '一个 Key 用遍各家，模型名要带厂家前缀' },
     together: { g: 'intl', name: 'Together', base: 'https://api.together.xyz/v1', model: '', note: '' },
     fireworks: { g: 'intl', name: 'Fireworks', base: 'https://api.fireworks.ai/inference/v1', model: '', note: '' },
     perplexity: { g: 'intl', name: 'Perplexity', base: 'https://api.perplexity.ai', model: 'sonar', note: '未实测' },
-    cerebras: { g: 'intl', name: 'Cerebras', base: 'https://api.cerebras.ai/v1', model: 'llama3.1-8b', note: '免费，地区限制严' },
-    sambanova: { g: 'intl', name: 'SambaNova', base: 'https://api.sambanova.ai/v1', model: 'Meta-Llama-3.1-8B-Instruct', note: '有免费额度' },
+    cerebras: { g: 'intl', cors: false, name: 'Cerebras', base: 'https://api.cerebras.ai/v1', model: 'llama3.1-8b', note: '免费，地区限制严' },
+    sambanova: { g: 'intl', cors: false, name: 'SambaNova', base: 'https://api.sambanova.ai/v1', model: 'Meta-Llama-3.1-8B-Instruct', note: '有免费额度' },
     nebius: { g: 'intl', name: 'Nebius AI', base: 'https://api.studio.nebius.com/v1', model: '', note: '' },
     novita: { g: 'intl', name: 'Novita', base: 'https://api.novita.ai/v3/openai', model: '', note: '' },
     deepinfra: { g: 'intl', name: 'DeepInfra', base: 'https://api.deepinfra.com/v1/openai', model: '', note: '' },
@@ -327,6 +336,40 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     return ask('你好，请只回复“连接成功”四个字。', { temperature: 0 });
   }
 
+  /* ---------- 网络层失败：把 "Failed to fetch" 翻译成人话 ----------
+   * 这件事值得单独写个函数，因为它不是罕见情况：
+   * 实测 32 家里有 5 家（豆包 / 讯飞星火 / Groq / Cerebras / SambaNova）
+   * 的 /models 接口完全不给跨域头，浏览器直连必被拦。
+   * 用户在这个工具里选了它们，填完 Key 点拉取，就得到一句 Failed to fetch。
+   * 不解释清楚，用户只会以为是自己填错了，然后反复重试。 */
+  function netFailReason(base, p) {
+    const pageHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+    const isHttp = /^http:\/\//.test(base);
+
+    /* https 页面去请求 http 地址 = 混合内容，浏览器直接掐掉。
+     * 本机那几个（Ollama / LM Studio / vLLM）部署上线后最容易撞这个。 */
+    if (pageHttps && isHttp) {
+      return '连不上：网页是 https，但接口地址是 http，浏览器禁止这种混合请求。'
+        + '要么给本机服务配 https，要么改用支持 https 的线上接口。';
+    }
+    /* 本机地址：多半是服务没启动，或者没开跨域 */
+    if (/localhost|127\.0\.0\.1/.test(base)) {
+      return '连不上本机的接口。检查一下：'
+        + '① 那个服务是不是真的启动了；'
+        + '② 有没有允许跨域（Ollama 要设 OLLAMA_ORIGINS=* 再重启，'
+        + 'LM Studio 要在设置里开「允许跨域」）。';
+    }
+    /* 已知不让浏览器直连的几家，直接点名，别让用户猜 */
+    if (p && p.cors === false) {
+      return '连不上：' + (p.name || '这家') + '的接口不允许浏览器直接调用（缺跨域许可），'
+        + '只能从服务器侧发起。换成国内那几家（DeepSeek / 智谱 / 通义 / 千帆 / 混元）'
+        + '都可以浏览器直连；或者自己搭一层代理转发。';
+    }
+    return '连不上：' + base + '。'
+      + '常见原因有三个——这家不让浏览器直连（缺跨域许可）、地址写错了、或者当前网络到不了。'
+      + '可以把地址复制到浏览器地址栏打开看看通不通。';
+  }
+
   /* ---------- 拉取模型列表 ----------
    * 各家都实现了 OpenAI 的 GET /v1/models，
    * 有了这个就不用让用户手敲模型名——那玩意儿又长又容易打错。 */
@@ -336,9 +379,20 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     const p = PROVIDERS[c.provider] || PROVIDERS.deepseek;
     const base = (c.base || p.base || '').replace(/\/$/, '');
     if (!base) throw new Error('还没填接口地址');
-    const resp = await fetch(base + '/models', {
-      headers: { 'Authorization': 'Bearer ' + c.key }
-    });
+
+    /* 网络层失败必须在这里接住，不能让它裸着冒上去。
+     * 浏览器 fetch 失败只丢一句 "Failed to fetch"，什么都没说：
+     * 可能是这家压根不让浏览器直连（CORS）、可能是 http/https 不匹配、
+     * 也可能就是断网。用户看到 Failed to fetch 完全不知道下一步干什么。
+     * 所以这里按场景分别讲人话。 */
+    let resp;
+    try {
+      resp = await fetch(base + '/models', {
+        headers: { 'Authorization': 'Bearer ' + c.key }
+      });
+    } catch (e) {
+      throw new Error(netFailReason(base, p));
+    }
     /* 这里踩过坑：智谱 BigModel 把 401 / 400 错误塞进 HTTP 200 里返回
      * （响应体是 {"code":401,"msg":"令牌已过期...","success":false}），
      * resp.ok 是 true，但其实是鉴权失败。如果只看 HTTP 状态码，

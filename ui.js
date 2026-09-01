@@ -1000,11 +1000,21 @@
       if (p.model) {
         const m = $('#ai-model'); if (m) m.value = p.model;
       }
+      /* 被跨域拦的那几家，光在下拉里加个 ⚠ 不够：
+       * 用户很可能没注意下拉里的字，切过来就填 Key 了。
+       * 所以切换后立刻在显眼处再讲一遍，别等他点拉取失败再猜。 */
+      const phint = $('#ai-provider-hint');
+      if (phint && Views.aiProviderHint) {
+        phint.innerHTML = Views.aiProviderHint(AI.PROVIDERS || {}, sel.value);
+      }
       const hint = $('#ai-hint');
       if (hint) {
-        hint.innerHTML = p.note
+        const warn = p.cors === false
+          ? ' <b style="color:#b45309">⚠ 这家浏览器直连会被拦，别浪费时间试 Key 了</b>。'
+          : '';
+        hint.innerHTML = (p.note
           ? `已切到 <b>${E(p.name)}</b>：${E(p.note)}。填 Key 就能用。`
-          : `已切到 <b>${E(p.name)}</b>，填 Key 就能用。`;
+          : `已切到 <b>${E(p.name)}</b>，填 Key 就能用。`) + warn;
       }
       if (!p.base) {
         const base = $('#ai-base');

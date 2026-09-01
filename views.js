@@ -902,6 +902,31 @@ window.Views = (function () {
     return `<div class="grid g3">${group.map(s => scriptCard(s, '')).join('') || emptyBox('还没有话术')}</div>`;
   }
 
+  /* ---------- 选中某家后的说明 ----------
+   * 普通情况一句话带过；被跨域拦的那几家必须当场说清楚，
+   * 不能等用户点「拉取」失败了再猜。
+   * 返回的是 HTML，调用方负责转义——这里的内容全部来自 PROVIDERS
+   * 自己写死的字符串，不含用户输入。 */
+  function aiProviderHint(P, key) {
+    const p = P[key] || {};
+    if (p.cors === false) {
+      return '<b style="color:#b45309">⚠ ' + E(p.name) + '不支持浏览器直连</b>：'
+        + '它的接口不给跨域许可，浏览器直接调用会被拦掉，'
+        + '报的是「连不上」而不是「Key 错」。要用它得自己搭一层代理转发，'
+        + '或者换一家——国内这几家都能直连：DeepSeek、智谱、通义、千帆、混元。';
+    }
+    if (p.g === 'local') {
+      return '本机服务要自己放开跨域才连得上：'
+        + 'Ollama 先设 <code>OLLAMA_ORIGINS=*</code> 再重启，'
+        + 'LM Studio 在设置里勾「允许跨域（CORS）」。'
+        + '另外网页本身是 https 的话，调 http 的本机地址会被浏览器按混合内容拦掉。';
+    }
+    /* 这里刻意不写 ⚠：那个符号只留给「这家连不上」的真警示，
+     * 否则到处都是 ⚠，真正的警告就淹没了（狼来了）。 */
+    return '各家现在都兼容 OpenAI 那套协议，换模型只是换地址 + 模型名，不用改代码。'
+      + '少数几家浏览器直连会被拦截，下拉里带警示标记，选之前先看说明。';
+  }
+
   /* ---------- 服务商选择 ----------
    * 为什么不干脆让用户自己填地址：各家地址长得没规律，
    * 「https://dashscope.aliyuncs.com/compatible-mode/v1」这种让用户手打不现实。
@@ -916,9 +941,15 @@ window.Views = (function () {
     const opts = G.map(g => {
       const items = Object.keys(P).filter(k => (P[k].g || 'custom') === g.id);
       if (!items.length) return '';
-      return `<optgroup label="${E(g.name)}">` + items.map(k =>
-        `<option value="${E(k)}"${cur === k ? ' selected' : ''}>${E(P[k].name)}${P[k].note ? '（' + E(P[k].note) + '）' : ''}</option>`
-      ).join('') + '</optgroup>';
+      return `<optgroup label="${E(g.name)}">` + items.map(k => {
+        /* 实测有 5 家不给跨域头，浏览器直连必被拦。
+         * 不标出来的话，用户选了它、填完 Key、点拉取，
+         * 只得到一句 Failed to fetch，然后反复重试 —— 纯浪费时间。
+         * 标记写得短（下拉框宽度有限，太长会撑破），
+         * 选到它时下面会另行展开说明。 */
+        const warn = P[k].cors === false ? ' ⚠浏览器直连会被拦' : '';
+        return `<option value="${E(k)}"${cur === k ? ' selected' : ''}>${E(P[k].name)}${P[k].note ? '（' + E(P[k].note) + '）' : ''}${warn}</option>`;
+      }).join('') + '</optgroup>';
     }).join('');
     const hist = (S.state.settings.aiHistory || []);
     const histHtml = hist.length ? `
@@ -931,8 +962,7 @@ window.Views = (function () {
       <div class="field"><label>服务商</label>
         <select id="ai-provider" data-action="ai-provider-change">${opts}</select></div>
       ${histHtml}
-      <div class="hint">各家现在都兼容 OpenAI 那套协议，换模型只是换地址 + 模型名，不用改代码。
-        本机自建那几个（Ollama / LM Studio）要额外开跨域，否则浏览器会拦。</div>`;
+      <div class="hint" id="ai-provider-hint">${aiProviderHint(P, cur)}</div>`;
   }
 
   /* ---------- 提醒设置 ----------
@@ -1608,5 +1638,7 @@ window.Views = (function () {
   }
 
   return { dash, customers, customerDetail, deals, followups, scripts, scriptResults, report, settings, ai, team,
-    stageBadge, levelTag, morningBrief, healthCard, healthDot, PUBLIC_ENDPOINT };
+    stageBadge, levelTag, morningBrief, healthCard, healthDot, PUBLIC_ENDPOINT,
+    /* 换服务商时 ui.js 要重算这段说明（跨域警示得跟着变），所以导出 */
+    aiProviderHint };
 })();
