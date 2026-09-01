@@ -15,22 +15,79 @@ window.AI = (function () {
   const S = Store;
 
   /* ---------- 服务商预设 ----------
-   * 标了「有免费额度」的是真能白嫖的——个人小团队最该先试这几个。
-   * 免费政策会变，所以这里只写「曾经免费」，具体以各家官网为准。 */
+   * g 字段用于分组（cn 国内直连 / intl 海外 / local 本机自建 / custom 自定义）。
+   * 标了免费额度的是真能白嫖的——个人小团队最该先试这几个。
+   * 免费政策会变，所以这里只写「有免费额度」，具体以各家官网为准。
+   *
+   * ── 关于这些地址的可信度（改之前务必读）──
+   * 用户踩过一次狠的：复制了 https://open.bigmodel.cn/api/coding/paas
+   * 去拉取模型，得到 404 —— 少了 /v4 那一截。
+   * 所以这里的地址不是凭记忆抄的，是拿 GET {base}/models 逐个探过的：
+   *   401/403 = 端点存在，只是 Key 无效（要的就是这个）
+   *   404     = 路径不对
+   *   000     = 沙箱网络到不了，没能实测
+   * 实测结果记在每个分组的注释里。标「未实测」的那几家（OpenAI / Mistral /
+   * xAI / Gemini / Perplexity / Anthropic）是从沙箱连不上的，用的是各家
+   * 官方文档的公开地址，第一次用如果报 404，按提示里的常见写法试 /v4、/v1。 */
   const PROVIDERS = {
-    deepseek: { name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: '' },
+    /* ── 国内直连：2026-09-01 实测 12 家全部返回 401/403，端点都有效 ── */
+    deepseek: { g: 'cn', name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: '' },
     /* 注意 base 一定要包含 /v4 那一截：
      * 智谱的列表/对话都挂在 /api/paas/v4/* 下，少了这截直接 404。
-     * 用户最容易踩的坑是从别处复制地址时把 /v4 一起截掉了。 */
-    zhipu: { name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', note: 'GLM-4-Flash 免费（地址含 /v4）' },
-    qwen: { name: '通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', note: '部分模型有免费额度' },
-    siliconflow: { name: '硅基流动', base: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', note: '有免费模型' },
-    moonshot: { name: 'Moonshot', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', note: '' },
-    doubao: { name: '豆包（火山方舟）', base: 'https://ark.cn-beijing.volces.com/api/v3', model: '', note: '需在方舟控制台建推理接入点' },
-    openai: { name: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', note: '' },
-    groq: { name: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant', note: '免费，国内访问不稳' },
-    custom: { name: '自定义（OpenAI 兼容）', base: '', model: '', note: '自己填地址和模型名' }
+     * 用户最容易踩的坑就是从别处复制地址时把 /v4 一起截掉了。 */
+    zhipu: { g: 'cn', name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', note: 'GLM-4-Flash 免费（地址含 /v4）' },
+    qwen: { g: 'cn', name: '通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', note: '部分模型有免费额度' },
+    siliconflow: { g: 'cn', name: '硅基流动', base: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', note: '有免费模型' },
+    moonshot: { g: 'cn', name: 'Moonshot Kimi', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', note: '' },
+    doubao: { g: 'cn', name: '豆包（火山方舟）', base: 'https://ark.cn-beijing.volces.com/api/v3', model: '', note: '需在方舟控制台建推理接入点，模型名填接入点 ID' },
+    qianfan: { g: 'cn', name: '百度千帆', base: 'https://qianfan.baidubce.com/v2', model: 'ernie-4.0-8k', note: '部分模型免费' },
+    spark: { g: 'cn', name: '讯飞星火', base: 'https://spark-api-open.xf-yun.com/v1', model: 'generalv3.5', note: '有免费额度' },
+    hunyuan: { g: 'cn', name: '腾讯混元', base: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbo', note: '部分模型免费' },
+    stepfun: { g: 'cn', name: '阶跃星辰', base: 'https://api.stepfun.com/v1', model: 'step-1-8k', note: '' },
+    lingyi: { g: 'cn', name: '零一万物', base: 'https://api.lingyiwanwu.com/v1', model: 'yi-large', note: '' },
+    minimax: { g: 'cn', name: 'MiniMax', base: 'https://api.minimax.chat/v1', model: 'abab6.5s-chat', note: '' },
+
+    /* ── 海外 ──
+     * 实测通的：Groq 403 / OpenRouter 200 / Together 401 / Fireworks 401 /
+     *           Cerebras 403(地区限制) / SambaNova 200 / Nebius 401 /
+     *           Novita 200 / DeepInfra 401
+     * 沙箱连不上（000，未实测，用官方文档地址）：OpenAI / Anthropic /
+     *           Gemini / Mistral / xAI / Perplexity */
+    openai: { g: 'intl', name: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', note: '未实测（沙箱连不上）' },
+    /* Azure 的地址里带资源名和部署名，没法预设，只能让用户自己填 */
+    azure: { g: 'intl', name: 'Azure OpenAI', base: '', model: '', note: '填 https://你的资源名.openai.azure.com/openai/deployments/部署名' },
+    anthropic: { g: 'intl', name: 'Anthropic Claude', base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5', note: '官方 OpenAI 兼容层，未实测' },
+    gemini: { g: 'intl', name: 'Google Gemini', base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash', note: '有免费额度，未实测' },
+    groq: { g: 'intl', name: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant', note: '免费，国内访问不稳' },
+    mistral: { g: 'intl', name: 'Mistral', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest', note: '部分免费，未实测' },
+    xai: { g: 'intl', name: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-3-mini', note: '未实测' },
+    openrouter: { g: 'intl', name: 'OpenRouter', base: 'https://openrouter.ai/api/v1', model: '', note: '一个 Key 用遍各家，模型名要带厂家前缀' },
+    together: { g: 'intl', name: 'Together', base: 'https://api.together.xyz/v1', model: '', note: '' },
+    fireworks: { g: 'intl', name: 'Fireworks', base: 'https://api.fireworks.ai/inference/v1', model: '', note: '' },
+    perplexity: { g: 'intl', name: 'Perplexity', base: 'https://api.perplexity.ai', model: 'sonar', note: '未实测' },
+    cerebras: { g: 'intl', name: 'Cerebras', base: 'https://api.cerebras.ai/v1', model: 'llama3.1-8b', note: '免费，地区限制严' },
+    sambanova: { g: 'intl', name: 'SambaNova', base: 'https://api.sambanova.ai/v1', model: 'Meta-Llama-3.1-8B-Instruct', note: '有免费额度' },
+    nebius: { g: 'intl', name: 'Nebius AI', base: 'https://api.studio.nebius.com/v1', model: '', note: '' },
+    novita: { g: 'intl', name: 'Novita', base: 'https://api.novita.ai/v3/openai', model: '', note: '' },
+    deepinfra: { g: 'intl', name: 'DeepInfra', base: 'https://api.deepinfra.com/v1/openai', model: '', note: '' },
+
+    /* ── 本机 / 自建 ──
+     * 这三个从沙箱连不上（服务没跑），地址是各家的默认端口。
+     * 关键提醒：浏览器直接 fetch 本机服务会被 CORS 拦掉，
+     * 各家都要额外开跨域，note 里写明了怎么开。 */
+    ollama: { g: 'local', name: 'Ollama（本机）', base: 'http://localhost:11434/v1', model: 'qwen2.5:7b', note: '需先设 OLLAMA_ORIGINS=* 并重启，否则浏览器拦 CORS' },
+    lmstudio: { g: 'local', name: 'LM Studio（本机）', base: 'http://localhost:1234/v1', model: '', note: '需在设置里开「允许跨域（CORS）」' },
+    vllm: { g: 'local', name: 'vLLM / 自建网关', base: 'http://localhost:8000/v1', model: '', note: '需网关放行 CORS' },
+
+    custom: { g: 'custom', name: '自定义（OpenAI 兼容）', base: '', model: '', note: '自己填地址和模型名' }
   };
+
+  const GROUPS = [
+    { id: 'cn', name: '国内直连' },
+    { id: 'intl', name: '海外' },
+    { id: 'local', name: '本机 / 自建' },
+    { id: 'custom', name: '自定义' }
+  ];
 
   function cfg() { return S.state.settings.ai || {}; }
   function saveCfg(patch) {
@@ -315,6 +372,45 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     throw new Error(msg);
   }
 
+  /* ---------- 404 时自动找对地址 ----------
+   * 用户踩过的最狠的一个坑：地址少了一截（智谱少了 /v4），
+   * 拉取就 404，而提示再清楚他也得自己回去改、再点一次。
+   * 与其让他猜，不如程序自己把常见的几种写法都试一遍：
+   * 哪个通了就直接告诉他「应该填这个」，一行都不用他改。
+   *
+   * 只在 404 的时候试 —— 401 说明地址是对的，只是 Key 不行，
+   * 那种情况瞎试地址纯属浪费时间。 */
+  async function probeBase(base, key) {
+    const root = String(base || '').replace(/\/+$/, '');
+    if (!root) return null;
+    const cands = [
+      root + '/v1',
+      root + '/v4',
+      root + '/api/v1',
+      root + '/api/paas/v4',
+      root + '/openai/v1',
+      root + '/compatible-mode/v1'
+    ];
+    /* 试的时候要快：每个最多 6 秒，而且是串行的，
+     * 但 404 探测本来就很少发生，慢一点可以接受。
+     * 反过来并行发 6 个请求容易被服务商当攻击。 */
+    for (const cand of cands) {
+      if (cand === root) continue;
+      try {
+        const r = await fetch(cand + '/models', {
+          headers: { 'Authorization': 'Bearer ' + key }
+        });
+        /* 401 / 403 / 200 都算「这个地址是对的」：
+         * 200 = 通了；401/403 = 路径对，只是我们的 Key 无效或没权限。
+         * 只有 404 才是「这条路不存在」。 */
+        if (r.status === 200 || r.status === 401 || r.status === 403) {
+          return cand;
+        }
+      } catch (e) { /* 这一个不通，试下一个 */ }
+    }
+    return null;
+  }
+
   /* ---------- 历史配置 ----------
    * 只存 key 的前几位，不存明文。
    * 切换历史时如果没重新填 key，就沿用在用的那个——
@@ -338,8 +434,8 @@ ${extra ? '\n补充要求：' + extra : ''}`;
   }
 
   return {
-    PROVIDERS, cfg, saveCfg, endpoint, modelName,
-    buildPrompt, ask, chat, testConnection, listModels,
+    PROVIDERS, GROUPS, cfg, saveCfg, endpoint, modelName,
+    buildPrompt, ask, chat, testConnection, listModels, probeBase,
     pushHistory, customerContext, weeklyContext, lostContext
   };
 })();

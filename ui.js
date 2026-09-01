@@ -1040,7 +1040,44 @@
           </div>`);
         const fi = $('#model-filter');
         if (fi) fi.focus();
-      } catch (e) { toast('拉取失败：' + e.message + '（也可以手填模型名）', 'err'); }
+      } catch (e) {
+        /* 404 多半是地址少了一截（智谱少 /v4 那次就是这个）。
+         * 与其让用户回去猜、再点一次，不如程序自己把常见写法都试一遍：
+         * 试出来了就把正确地址**直接填进输入框并帮他再拉一次**，
+         * 一步都不用他动。试不出来再把原因说清楚。 */
+        if (/404/.test(e.message) && AI.probeBase) {
+          const c = S.state.settings.ai || {};
+          toast('地址可能不对，正在自动试几种常见写法…', 'ok');
+          const found = await AI.probeBase(c.base, c.key);
+          if (found) {
+            const box = $('#ai-base');
+            if (box) box.value = found;
+            S.state.settings.ai = Object.assign({}, c, { base: found });
+            S.save();
+            toast('找到了，地址应该是 ' + found + '，已替你改好，正在重新拉取…', 'ok');
+            try {
+              const list2 = await AI.listModels();
+              openPanel('选择模型', `
+                <div class="field"><label>这家有 ${list2.length} 个模型，点一个直接用</label>
+                  <input id="model-filter" placeholder="输入关键字筛选，比如 chat / flash" autocomplete="off"></div>
+                <div id="model-list" style="max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:4px">
+                  ${list2.map(m => `<button class="btn btn-sm" data-action="ai-pick-model" data-m="${E(m)}"
+                    style="text-align:left;justify-content:flex-start">${E(m)}</button>`).join('')}
+                </div>`);
+              const fi2 = $('#model-filter');
+              if (fi2) fi2.focus();
+              return;
+            } catch (e2) {
+              toast('改了地址还是不行：' + e2.message + '（也可以手填模型名）', 'err');
+              return;
+            }
+          }
+          toast('试了 /v1 /v4 等几种常见写法都不通，地址可能整个就不对。'
+            + '原始报错：' + e.message + '（也可以手填模型名）', 'err');
+          return;
+        }
+        toast('拉取失败：' + e.message + '（也可以手填模型名）', 'err');
+      }
     },
     /* 记录用户自己展开还是收起了配置区。
      * 以前是「有 Key 就自动收起」，结果用户填完 Key 选个模型的功夫，

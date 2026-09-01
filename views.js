@@ -908,10 +908,18 @@ window.Views = (function () {
    * 选中即预填地址和默认模型名，用户只需要填自己的 Key。 */
   function aiProviderPicker(ai) {
     const P = (window.AI && window.AI.PROVIDERS) || {};
+    const G = (window.AI && window.AI.GROUPS) || [{ id: 'custom', name: '服务商' }];
     const cur = ai.provider || 'deepseek';
-    const opts = Object.keys(P).map(k =>
-      `<option value="${E(k)}"${cur === k ? ' selected' : ''}>${E(P[k].name)}${P[k].note ? '（' + E(P[k].note) + '）' : ''}</option>`
-    ).join('');
+    /* 按分组渲染成 optgroup。
+     * 不加分组的话三十来家平铺在一个列表里，手机上划半天找不到，
+     * 而且「本机自建」和「国内直连」混在一起，看的人根本不知道该选哪个。 */
+    const opts = G.map(g => {
+      const items = Object.keys(P).filter(k => (P[k].g || 'custom') === g.id);
+      if (!items.length) return '';
+      return `<optgroup label="${E(g.name)}">` + items.map(k =>
+        `<option value="${E(k)}"${cur === k ? ' selected' : ''}>${E(P[k].name)}${P[k].note ? '（' + E(P[k].note) + '）' : ''}</option>`
+      ).join('') + '</optgroup>';
+    }).join('');
     const hist = (S.state.settings.aiHistory || []);
     const histHtml = hist.length ? `
       <div class="field"><label>用过的配置</label>
@@ -923,7 +931,8 @@ window.Views = (function () {
       <div class="field"><label>服务商</label>
         <select id="ai-provider" data-action="ai-provider-change">${opts}</select></div>
       ${histHtml}
-      <div class="hint">国内主流模型商现在都兼容 OpenAI 那套协议，所以换模型只是换地址 + 模型名，不用改代码。</div>`;
+      <div class="hint">各家现在都兼容 OpenAI 那套协议，换模型只是换地址 + 模型名，不用改代码。
+        本机自建那几个（Ollama / LM Studio）要额外开跨域，否则浏览器会拦。</div>`;
   }
 
   /* ---------- 提醒设置 ----------
