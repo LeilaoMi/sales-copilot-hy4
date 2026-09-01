@@ -1448,7 +1448,16 @@
         if (e.target.id === 'modal-backdrop') closeModal();
         return;
       }
-      e.preventDefault();
+      /* 这里有两个被同一类坑咬过：
+       *   - summary：data-action 挂在 summary 上，e.preventDefault 取消了「展开/收起」默认行为
+       *   - select：点了不会弹下拉（用户报：「上面服务商窗口无法点击切换」）
+       * 表单元素挂 data-action 时不能 preventDefault——它们各自的默认行为
+       * 是这个交互存在的全部理由。挑出 SELECT/INPUT/TEXTAREA/LABEL/A 放行，
+       * 其它（button、div 等）的默认行为本来就没意义，照旧 preventDefault。 */
+      const tag = el.tagName;
+      const isFormControl = tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA'
+        || tag === 'LABEL' || tag === 'A';
+      if (!isFormControl) e.preventDefault();
       const fn = actions[el.dataset.action];
       if (fn) fn(el);
     });

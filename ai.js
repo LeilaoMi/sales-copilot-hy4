@@ -19,7 +19,10 @@ window.AI = (function () {
    * 免费政策会变，所以这里只写「曾经免费」，具体以各家官网为准。 */
   const PROVIDERS = {
     deepseek: { name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: '' },
-    zhipu: { name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', note: 'GLM-4-Flash 免费' },
+    /* 注意 base 一定要包含 /v4 那一截：
+     * 智谱的列表/对话都挂在 /api/paas/v4/* 下，少了这截直接 404。
+     * 用户最容易踩的坑是从别处复制地址时把 /v4 一起截掉了。 */
+    zhipu: { name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', note: 'GLM-4-Flash 免费（地址含 /v4）' },
     qwen: { name: '通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', note: '部分模型有免费额度' },
     siliconflow: { name: '硅基流动', base: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', note: '有免费模型' },
     moonshot: { name: 'Moonshot', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', note: '' },
@@ -279,15 +282,37 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     const resp = await fetch(base + '/models', {
       headers: { 'Authorization': 'Bearer ' + c.key }
     });
-    if (!resp.ok) {
-      let msg = 'HTTP ' + resp.status;
-      try { const e = await resp.json(); msg = (e.error && e.error.message) || msg; } catch (e) {}
-      throw new Error(msg);
+    /* 这里踩过坑：智谱 BigModel 把 401 / 400 错误塞进 HTTP 200 里返回
+     * （响应体是 {"code":401,"msg":"令牌已过期...","success":false}），
+     * resp.ok 是 true，但其实是鉴权失败。如果只看 HTTP 状态码，
+     * 会落到下面"没返回模型列表"的分支，给的提示跟"地址填错"一样，
+     * 用户看不出是 Key 的问题。所以 200 的响应必须额外看 body。
+     *
+     * 注意：HTTP 404 / 401 之类是正常错误，照 resp.status 报就行，
+     * 不能也走 bodyErr 那条 —— 那会让「地址填错」被说成「Key 没权限」。 */
+    if (resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      const zhipuStyleErr = (data.success === false && data.msg)
+        || (typeof data.code === 'number' && data.code >= 400 && data.msg);
+      if (zhipuStyleErr) {
+        throw new Error('HTTP 200 但接口报错：' + zhipuStyleErr
+          + '（常见原因：Key 没填 / 填错了 / 没权限）');
+      }
+      const list = (data.data || []).map(m => m.id || m.name).filter(Boolean);
+      if (!list.length) throw new Error('这家没返回模型列表，请手动填模型名');
+      return list.sort();
     }
-    const data = await resp.json();
-    const list = (data.data || []).map(m => m.id || m.name).filter(Boolean);
-    if (!list.length) throw new Error('这家没返回模型列表，请手动填模型名');
-    return list.sort();
+    let msg = 'HTTP ' + resp.status;
+    try { const e = await resp.json(); if (e && e.error && e.error.message) msg += ' · ' + e.error.message; } catch (e2) {}
+    /* 404 最常见的是地址错了（缺 /v4 那一截）。
+     * 直接把根路径（包含 v1 / v4）的几个常见形式列出来，
+     * 用户看一眼就知道该往哪改，不用再翻官方文档。 */
+    if (resp.status === 404) {
+      msg += '（常见原因：接口地址少了一截 /v1 或 /v4，可以手动填模型名绕过）';
+    } else if (resp.status === 401) {
+      msg += '（Key 无效或没权限）';
+    }
+    throw new Error(msg);
   }
 
   /* ---------- 历史配置 ----------
