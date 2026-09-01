@@ -76,6 +76,37 @@ if (process.argv.includes('--pages')) {
   fs.copyFileSync(headersSrc, path.join(outDir, '_headers'));
   console.log('  ✓ 已带上 _headers（sw.js 与入口页不缓存）');
 
+  /* 自动把 sw.js 的预缓存清单补齐全。
+   *
+   * 这个坑踩过两次：加了新模块，忘了往 sw.js 的 FILES 里加，
+   * 离线一打开就是残缺页面。第一版漏 6 个，第二版漏 4 个
+   * （auth / notify / team / sparring）。
+   * 注释里那句「新增脚本文件时记得同步这里」被证明靠不住 ——
+   * 人会忘，而且忘了不报错，只在离线时才现形，最难查。
+   *
+   * 所以改成构建时按 index.html 的实际引用重写一遍。
+   * 根目录那份 sw.js 是开发时用的，仍然手写；
+   * 但**部署出去的这份一定是全的** —— 那才是会到用户机器上的那份。 */
+  const swSrc = path.join(dir, 'sw.js');
+  if (fs.existsSync(swSrc)) {
+    let sw = fs.readFileSync(swSrc, 'utf8');
+    const statics = ['./', './index.html', './styles.css',
+                     './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+    const jsFiles = Array.from(referenced)
+      .filter(f => /\.js$/.test(f) && !/^data:/i.test(f))
+      .map(f => './' + f);
+    const list = statics.concat(jsFiles).map(f => "  '" + f + "'").join(',\n');
+    const before = sw;
+    sw = sw.replace(/const FILES = \[[\s\S]*?\];/, 'const FILES = [\n' + list + '\n];');
+    if (sw === before) {
+      console.error('\n✗ 没能改写到 sw.js 的 FILES 清单（正则没匹配上）');
+      console.error('  sw.js 结构变了吧，构建脚本要跟着改。');
+      process.exit(1);
+    }
+    fs.writeFileSync(path.join(outDir, 'sw.js'), sw, 'utf8');
+    console.log('  ✓ sw.js 预缓存清单已按 index.html 重写（' + jsFiles.length + ' 个脚本）');
+  }
+
   /* 目录里必须闹明白有没有 data/ —— 有就是事故，直接报错拦下来 */
   const leaked = [];
   (function walk(d, rel) {
