@@ -49,6 +49,34 @@
     formSubmit = null;
   }
 
+  /* 带标题的通用弹窗。
+   *
+   * 为什么非得再开一个函数：openModal(html) 只接受**一个**参数，
+   * 可已经有好几处按 openModal(标题, 正文, 回调) 的三参数写法去调它了。
+   * 后果是「标题」被当成整块内容塞进弹窗，正文和回调被直接丢掉——
+   *   点「拉取模型列表」出来一个只写着「选择模型」四个字的空弹窗；
+   *   「移出团队」「退出团队」的确认按钮干脆消失，操作没法完成。
+   *
+   * 靠人记住「这个函数只有一个参数」是靠不住的，
+   * 所以给「带标题 + 有按钮」这种弹窗一个签名对得上的入口。
+   *
+   * onOk 不传时只给一个「关闭」，适用于纯展示/选择的场景。 */
+  function openPanel(title, bodyHtml, onOk, okText) {
+    const foot = onOk
+      ? `<div class="modal-foot">
+           <button class="btn" data-action="close-modal">取消</button>
+           <button class="btn ${okText ? 'btn-danger' : 'btn-primary'}" data-action="confirm-ok">${E(okText || '确定')}</button>
+         </div>`
+      : `<div class="modal-foot"><button class="btn" data-action="close-modal">关闭</button></div>`;
+    openModal(`
+      <div class="modal-head"><h3>${E(title)}</h3><button class="x-btn" data-action="close-modal">×</button></div>
+      <div class="modal-body">${bodyHtml}</div>
+      ${foot}`);
+    /* 没有回调时必须清成 null：formSubmit 是模块级的，
+     * 留着上一次的值会出现「点确定执行了别的动作」这种邪门事 */
+    formSubmit = onOk || null;
+  }
+
   function confirmBox(title, text, onOk, okText) {
     openModal(`
       <div class="modal-head"><h3>${E(title)}</h3><button class="x-btn" data-action="close-modal">×</button></div>
@@ -112,6 +140,37 @@
   }
 
   function readVal(name) { const el = $('#' + name); return el ? el.value.trim() : ''; }
+
+  /* 把设置页上 AI 那几个输入框的值写进 Store。
+   *
+   * 为什么要单独抽一个：以前只有「保存并测试连接」会写库，
+   * 于是「填完地址和 Key，直接点『拉取』」会弹出一句
+   * 「还没配置 API Key」——用户明明填了，却被说没填，
+   * 第一反应只会是「这功能坏了」。
+   *
+   * 点了拉取/测试，本身就说明他认可当前填的这几个值，顺手存一下是应该的。
+   *
+   * 那个 exists 判断不能省：readVal 在元素不存在时返回空串，
+   * 而这三个输入框只在设置页存在。要是在别的页面调了它，
+   * 会把用户配好的地址、Key、模型**全部清成空**，那比原来的毛病还糟。 */
+  function syncAIFromInputs() {
+    if (!$('#ai-key')) return null;      // 不在设置页，别动
+    const s = S.state.settings;
+    const prev = s.ai || {};
+    s.ai = {
+      provider: (prev.provider === undefined ? 'deepseek' : prev.provider),
+      base: readVal('ai-base') || 'https://api.deepseek.com/v1',
+      key: ($('#ai-key') ? $('#ai-key').value : '').trim(),
+      model: readVal('ai-model') || 'deepseek-chat',
+      /* open 要原样带过去：这里是整个重建 s.ai，
+       * 漏掉它的话，重渲染时配置区又会按默认状态弹开或收起 */
+      open: prev.open === false ? false : true
+    };
+    s.ai.enabled = !!s.ai.key;
+    s.updatedAt = Date.now();
+    S.save();
+    return s.ai;
+  }
 
   function toLocalInput(iso) {
     if (!iso) return '';
@@ -916,16 +975,7 @@
 
     'save-ai': async () => {
       const s = S.state.settings;
-      const prev = s.ai || {};
-      s.ai = {
-        provider: (prev.provider === undefined ? 'deepseek' : prev.provider),
-        base: readVal('ai-base') || 'https://api.deepseek.com/v1',
-        key: $('#ai-key').value || '',
-        model: readVal('ai-model') || 'deepseek-chat'
-      };
-      s.ai.enabled = !!s.ai.key;
-      s.updatedAt = Date.now();
-      S.save();
+      syncAIFromInputs();
       if (!s.ai.key) { toast('已清空 API 配置', 'ok'); render(); return; }
       AI.pushHistory(s.ai);
       toast('正在测试连接…', 'ok');
@@ -974,17 +1024,43 @@
       toast('已切回这套配置，Key 用的是当前这个（' + (h.keyHint || '') + '…）', 'ok');
     },
     'ai-list-models': async () => {
+      /* 先把输入框里的值存下来：用户填完直接点拉取是再自然不过的动作，
+       * 这时候回他一句「还没配置 API Key」毫无道理 */
+      syncAIFromInputs();
       toast('正在拉取模型列表…', 'ok');
       try {
         const list = await AI.listModels();
-        openModal('选择模型', `
-          <div class="field"><label>这家有 ${list.length} 个模型，点一个直接用</label></div>
-          <div style="max-height:320px;overflow:auto;display:flex;flex-direction:column;gap:4px">
+        /* 模型多的时候一行行点很累，给个搜索框边打边筛 */
+        openPanel('选择模型', `
+          <div class="field"><label>这家有 ${list.length} 个模型，点一个直接用</label>
+            <input id="model-filter" placeholder="输入关键字筛选，比如 chat / flash" autocomplete="off"></div>
+          <div id="model-list" style="max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:4px">
             ${list.map(m => `<button class="btn btn-sm" data-action="ai-pick-model" data-m="${E(m)}"
               style="text-align:left;justify-content:flex-start">${E(m)}</button>`).join('')}
-          </div>`,
-          () => {});
+          </div>`);
+        const fi = $('#model-filter');
+        if (fi) fi.focus();
       } catch (e) { toast('拉取失败：' + e.message + '（也可以手填模型名）', 'err'); }
+    },
+    /* 记录用户自己展开还是收起了配置区。
+     * 以前是「有 Key 就自动收起」，结果用户填完 Key 选个模型的功夫，
+     * 配置区当着面自己消失了 —— 正在配置的东西不该自己藏起来。
+     * 现在改成记用户的意思：他说收起才收起，重渲染后保持一致。
+     *
+     * 这里的 d.open = !d.open 不是多此一举：上面那个全局委托
+     * 对所有带 data-action 的元素都会 e.preventDefault()，
+     * 而 summary 的展开恰恰就是「默认行为」，被取消掉了。
+     * 所以必须手动补上这一次 toggle，否则点了完全没反应。
+     *
+     * （同一个坑也会咬 <a href> 和 <label for>：它们一旦挂上 data-action，
+     *   跳转和勾选同样会失效。这些元素原则上别挂 data-action。） */
+    'ai-toggle-cfg': () => {
+      const d = $('#ai-cfg');
+      if (!d) return;
+      d.open = !d.open;
+      const s = S.state.settings;
+      s.ai = Object.assign({}, s.ai, { open: d.open });
+      S.save();
     },
     'ai-pick-model': (el) => {
       const m = (el && el.dataset && el.dataset.m) || '';
@@ -997,13 +1073,8 @@
       toast('已选择模型 ' + m, 'ok');
     },
     'ai-test': async () => {
-      if (!$('#ai-key').value) { toast('先填 Key 再测', 'err'); return; }
-      const s = S.state.settings;
-      s.ai = Object.assign({}, s.ai, {
-        provider: $('#ai-provider') ? $('#ai-provider').value : (s.ai || {}).provider,
-        base: readVal('ai-base'), key: $('#ai-key').value, model: readVal('ai-model')
-      });
-      S.save();
+      if (!($('#ai-key') && $('#ai-key').value.trim())) { toast('先填 Key 再测', 'err'); return; }
+      syncAIFromInputs();
       toast('正在测试…', 'ok');
       try { await AI.testConnection(); toast('连接成功', 'ok'); }
       catch (e) { toast('连接失败：' + e.message, 'err'); }
@@ -1104,14 +1175,14 @@
       const uid = (el && el.dataset && el.dataset.uid) || '';
       if (!uid) return;
       const name = (el.dataset.name || '这位成员');
-      openModal('把 ' + name + ' 移出团队',
+      openPanel('把 ' + name + ' 移出团队',
         `<p class="small">移出后他就<b>看不到团队共享话术</b>了，但他的客户数据本来就是他自己的，
          不会跟着消失。</p><p class="small muted">确定吗？</p>`,
         async () => {
           try { await Auth.removeFromTeam(uid); toast('已移出团队', 'ok'); }
           catch (e) { toast('操作失败：' + e.message, 'err'); }
           render(); loadTeam();
-        });
+        }, '移出');
     },
     'join-team': async () => {
       const input = $('#invite-input');
@@ -1130,14 +1201,14 @@
       render();
     },
     'leave-team': async () => {
-      openModal('退出团队',
+      openPanel('退出团队',
         `<p class="small">退出后你会<b>看不到团队共享话术</b>，管理员也看不到你的进度。</p>
          <p class="small muted">你自己的客户、商机、跟进<b>一条都不会少</b>，它们本来就只属于你。</p>`,
         async () => {
           try { await Auth.leaveTeam(); boardData = null; toast('已退出团队', 'ok'); }
           catch (e) { toast('退出失败：' + e.message, 'err'); }
           render();
-        });
+        }, '退出');
     },
     'reset-invite': async () => {
       try {
@@ -1456,6 +1527,17 @@
         render();
         const el = $('#c-search');
         if (el) { el.focus(); el.setSelectionRange(pos, pos); }
+      }
+      /* 模型列表的筛选：只在这里改可见性，不重绘整个弹窗，
+       * 免得输入框失焦、光标跳回开头（c-search 那套 render() 的做法在这儿不适用） */
+      else if (e.target.id === 'model-filter') {
+        const q = String(e.target.value || '').trim().toLowerCase();
+        const box = $('#model-list');
+        if (!box) return;
+        Array.from(box.children).forEach(btn => {
+          const m = String(btn.getAttribute('data-m') || '').toLowerCase();
+          btn.hidden = q ? m.indexOf(q) < 0 : false;
+        });
       }
     });
 

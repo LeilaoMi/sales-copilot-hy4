@@ -1103,6 +1103,39 @@ window.Views = (function () {
       n + (S.state[k] || []).filter(r => r.deleted).length, 0);
     const hc = window.Health ? window.Health.settings() : { enabled: true, sensitivity: 1, snoozeDays: 7 };
     return `
+    <!-- AI 配置放在设置页最顶上，是有意的：
+         它是「从零到能用」的第一步，不配的话话术生成、周报、复盘、作战简报全都用不了。
+         以前它排在第 5 张卡片，手机上要往下滚两屏多才看得见，
+         用户报的就是「找不到 / 填完什么都没有」。整宽是为了让那一长串地址好填。 -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">AI 助手（可选增强）<span class="card-sub">配好就能用话术生成、周报、复盘、作战简报</span></div>
+        ${ai.key ? '<span class="badge" style="background:#16a34a">已配置</span>'
+                 : '<span class="badge" style="background:#f59e0b">还没配</span>'}
+      </div>
+      <p class="small muted" style="margin-top:0">
+        不配置也能用。API Key 只保存在本机浏览器，直连你填的服务商，不会经过任何第三方服务器。
+      </p>
+      <details id="ai-cfg" ${ai.open === false ? '' : 'open'}>
+        <summary data-action="ai-toggle-cfg" style="cursor:pointer;color:var(--primary);font-weight:600;font-size:13px;margin-bottom:10px">展开 / 收起 API 配置</summary>
+        ${aiProviderPicker(ai)}
+        <div class="field"><label>接口地址（OpenAI 兼容格式）</label>
+          <input id="ai-base" value="${E(ai.base || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1"></div>
+        <div class="field"><label>API Key</label>
+          <input id="ai-key" type="password" value="${E(ai.key || '')}" placeholder="sk-..."></div>
+        <div class="field"><label>模型名</label>
+          <div style="display:flex;gap:6px">
+            <input id="ai-model" value="${E(ai.model || 'deepseek-chat')}" placeholder="deepseek-chat" style="flex:1">
+            <button class="btn btn-sm" data-action="ai-list-models" title="从服务商拉取可用模型">拉取</button>
+          </div></div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button class="btn btn-primary" data-action="save-ai">保存并测试连接</button>
+          <button class="btn btn-sm" data-action="ai-test">只测连接</button>
+        </div>
+        <div class="hint" id="ai-hint">${ai.key ? '已配置。测试通过就能在「AI 助手」页用。' : '选一家服务商、填 Key，模型名会自动带上默认值。标了「免费」的适合先试试。'}</div>
+      </details>
+    </div>
+
     <div class="grid g2">
       <div class="card">
         <div class="card-head"><div class="card-title">个人与目标设置</div></div>
@@ -1254,32 +1287,6 @@ window.Views = (function () {
     </div>
 
     <div class="grid g2">
-      <div class="card">
-        <div class="card-head"><div class="card-title">AI 助手（可选增强）</div></div>
-        <p class="small muted" style="margin-top:0">
-          不配置也能用。配置后可在「AI 助手」页生成跟进话术、周报、输单复盘、客户作战建议<b>和作战简报</b>。
-          API Key 只保存在本机浏览器，直连你填的服务商，不会经过任何第三方服务器。
-        </p>
-        <details ${ai.key ? '' : 'open'}>
-          <summary style="cursor:pointer;color:var(--primary);font-weight:600;font-size:13px;margin-bottom:10px">展开 API 配置</summary>
-          ${aiProviderPicker(ai)}
-          <div class="field"><label>接口地址（OpenAI 兼容格式）</label>
-            <input id="ai-base" value="${E(ai.base || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1"></div>
-          <div class="field"><label>API Key</label>
-            <input id="ai-key" type="password" value="${E(ai.key || '')}" placeholder="sk-..."></div>
-          <div class="field"><label>模型名</label>
-            <div style="display:flex;gap:6px">
-              <input id="ai-model" value="${E(ai.model || 'deepseek-chat')}" placeholder="deepseek-chat" style="flex:1">
-              <button class="btn btn-sm" data-action="ai-list-models" title="从服务商拉取可用模型">拉取</button>
-            </div></div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px">
-            <button class="btn btn-primary" data-action="save-ai">保存并测试连接</button>
-            <button class="btn btn-sm" data-action="ai-test">只测连接</button>
-          </div>
-          <div class="hint" id="ai-hint">${ai.key ? '已配置。测试通过就能在「AI 助手」页用。' : '选一家服务商、填 Key，模型名会自动带上默认值。标了「免费」的适合先试试。'}</div>
-        </details>
-      </div>
-
       ${notifyCard()}
 
       <div class="card">
@@ -1457,7 +1464,10 @@ window.Views = (function () {
         <div><b>话术军火</b><p class="small muted">把客户那句让你卡壳的原话粘进去，先从<b>你自己的话术库</b>里找参考，
           再让 AI 改写成一段能直接发出去的话。检索在本地完成，断网也能找到素材。</p></div>
       </div>
-    </div>`;
+    </div>
+
+    <!-- AI 陪练：界面和逻辑都在 sparring.js 里，这里只留一个挂载点 -->
+    <div id="spar-root">${window.Sparring ? Sparring.render() : ''}</div>`;
   }
 
 

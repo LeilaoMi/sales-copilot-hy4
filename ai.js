@@ -223,6 +223,45 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
   }
 
+  /* ---------- 多轮对话 ----------
+   * ask() 是「一问一答」，但陪练这类场景必须带上前面说过的话，
+   * 否则 AI 扮演的客户每一轮都失忆，聊两句就自相矛盾，练不下去。
+   *
+   * 和系统提示分开传，是因为不同场景要给它不同的「人设」，
+   * 写死在 ask() 里会让那个函数越来越臃肿。 */
+  async function chat(messages, opts) {
+    const c = cfg();
+    if (!c.key) throw new Error('还没配置 API Key，请先在「设置 → AI 助手」里填');
+    const url = endpoint();
+    if (!url || url === '/chat/completions') {
+      throw new Error('还没填接口地址（选自定义时要自己填 Base URL）');
+    }
+    const model = modelName();
+    if (!model) throw new Error('还没填模型名');
+
+    const o = opts || {};
+    const msgs = [{ role: 'system', content: o.system || '你是销冠助手内置的销售顾问，用中文回答。' }]
+      .concat(messages || []);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + c.key },
+      body: JSON.stringify({
+        model: model,
+        messages: msgs,
+        temperature: typeof o.temperature === 'number' ? o.temperature : 0.8,
+        stream: false
+      })
+    });
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      try { const e = await resp.json(); msg = (e.error && e.error.message) || e.message || JSON.stringify(e); } catch (e) {}
+      throw new Error(msg);
+    }
+    const data = await resp.json();
+    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  }
+
   /* ---------- 测试连接 ---------- */
   function testConnection() {
     return ask('你好，请只回复“连接成功”四个字。', { temperature: 0 });
@@ -275,7 +314,7 @@ ${extra ? '\n补充要求：' + extra : ''}`;
 
   return {
     PROVIDERS, cfg, saveCfg, endpoint, modelName,
-    buildPrompt, ask, testConnection, listModels,
+    buildPrompt, ask, chat, testConnection, listModels,
     pushHistory, customerContext, weeklyContext, lostContext
   };
 })();
