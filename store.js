@@ -661,22 +661,52 @@ window.Store = (function () {
       { id: 'd13', cid: 'c5', title: '报表分析模块', amount: 145000, stage: 'won', created: -120, close: -86, note: '预算内签单。' },
       { id: 'd14', cid: 'c4', title: '试点校区系统', amount: 42000, stage: 'won', created: -95, close: -58, note: '小单试水，效果不错。' },
       { id: 'd15', cid: 'c8', title: '数据看板 POC', amount: 38000, stage: 'won', created: -70, close: -32, note: 'POC 转正式项目的跳板。' },
-      { id: 'd16', cid: 'c7', title: '车辆定位模块', amount: 58000, stage: 'won', created: -48, close: -14, note: '本月刚签，客户要求 2 周上线。' },
-      { id: 'd17', cid: 'c9', title: '一期可视化大屏', amount: 260000, stage: 'won', created: -60, close: -9, note: '本月签单，走完招标流程。' },
+      /* 这两条注释写着「本月刚签」，日期就必须真的落在本月。
+       * 以前写的是 close: -14 / -9（N 天前），跨月之后就露馅了：
+       * 9 月 1 号打开，-14 天是 8 月 18 号，早就不是本月。
+       * 于是每月头两周打开 demo，「本月回款」和「目标完成率」全是一片 0，
+       * 战情台最显眼的两个数字是空的 —— 第一眼就让人以为软件算错了。
+       *
+       * 改用 closeInMonth：0 = 本月 1 号，1 = 今天。
+       * 1 号打开时两条都落在今天，也不会掉出本月。 */
+      { id: 'd16', cid: 'c7', title: '车辆定位模块', amount: 58000, stage: 'won', created: -48, closeInMonth: 0.3, note: '本月刚签，客户要求 2 周上线。' },
+      { id: 'd17', cid: 'c9', title: '一期可视化大屏', amount: 260000, stage: 'won', created: -60, closeInMonth: 0.7, note: '本月签单，走完招标流程。' },
       /* 输单 */
       { id: 'd18', cid: 'c10', title: '经销商订货系统', amount: 175000, stage: 'lost', created: -110, close: -66, note: '价格战输给本地厂商，低价冲量。', lost: '价格高出竞品 30%' },
       { id: 'd19', cid: 'c3', title: '移动查房模块', amount: 130000, stage: 'lost', created: -100, close: -44, note: '客户内部项目暂停。', lost: '客户预算冻结' }
     ];
 
+    /* 取「本月第 day 天」的时刻。
+     * 不能用「N 天前」来表达「本月签的单」：月初那天数一减就掉到上个月去了。
+     * Math.min 是为了不越过今天（1 号打开时 day 只能是 1）。 */
+    const thisMonthIso = (day, h) => {
+      const d = new Date();
+      d.setDate(Math.min(day, d.getDate()));
+      d.setHours(h || 16, 0, 0, 0);
+      return d.toISOString();
+    };
+
     const dealObjs = deals.map(d => {
       const closed = ['won', 'lost'].includes(d.stage);
+      let closeIso, updatedIso, expectIso;
+      if (d.closeInMonth != null) {
+        const dom = new Date().getDate();
+        const day = Math.max(1, Math.round(dom * d.closeInMonth));
+        closeIso = thisMonthIso(day, 16);
+        updatedIso = thisMonthIso(day, 15);
+        expectIso = thisMonthIso(day, 16);
+      } else {
+        closeIso = dISO(d.close, 16);
+        updatedIso = dISO(closed ? d.close : -2, 15);
+        expectIso = T(d.close);
+      }
       return {
         id: d.id, customerId: d.cid, title: d.title, amount: d.amount,
         stage: d.stage, note: d.note, lostReason: d.lost || '',
         createdAt: dISO(d.created, 9),
-        updatedAt: dISO(closed ? d.close : -2, 15),
-        expectedClose: T(d.close),
-        closedAt: closed ? dISO(d.close, 16) : null
+        updatedAt: updatedIso,
+        expectedClose: expectIso,
+        closedAt: closed ? closeIso : null
       };
     });
 
