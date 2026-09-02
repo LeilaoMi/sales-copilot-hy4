@@ -37,6 +37,11 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 # 判据：解析出来的地址落在 198.18.0.0/15 就说明被劫持了。
 # 绕过办法：用 DoH（DNS over HTTPS）查真实 IP，临时写进 /etc/hosts。
 # 注意 /etc/hosts 在这种环境里会被自动还原，所以每次推送前都要刷一次。
+# 三个域名都要修：推送只用前两个，
+# 但推完想核对文件（raw.githubusercontent.com）时同样会被劫持，
+# 只修前两个就会在验证那一步莫名其妙报连不上。
+GH_HOSTS="api.github.com github.com raw.githubusercontent.com"
+
 fix_dns() {
   local cur
   cur=$(getent hosts api.github.com 2>/dev/null | awk '{print $1}' | head -1)
@@ -46,19 +51,25 @@ fix_dns() {
   esac
 
   echo "→ 发现 GitHub 域名被 DNS 劫持（解析到 ${cur:-空}），改用 DoH 查真实地址…"
-  local ip_api ip_web
-  ip_api=$(curl -s -m 10 "https://dns.alidns.com/resolve?name=api.github.com&type=A" \
-           | grep -oE '"data":"[0-9.]+"' | grep -oE '[0-9.]+' | head -1)
-  ip_web=$(curl -s -m 10 "https://dns.alidns.com/resolve?name=github.com&type=A" \
-           | grep -oE '"data":"[0-9.]+"' | grep -oE '[0-9.]+' | head -1)
-  if [ -z "$ip_api" ] || [ -z "$ip_web" ]; then
-    echo "  ! DoH 也查不到，先凑合按原样试（可能会连不上）"
+  local h ip ok=0
+  cp /etc/hosts /tmp/.hosts.new 2>/dev/null || : > /tmp/.hosts.new
+  for h in $GH_HOSTS; do
+    ip=$(curl -s -m 10 "https://dns.alidns.com/resolve?name=$h&type=A" \
+         | grep -oE '"data":"[0-9.]+"' | grep -oE '[0-9.]+' | head -1)
+    [ -z "$ip" ] && { echo "  ! $h 查不到，跳过"; continue; }
+    # 先清掉这个域名的旧条目再写，避免重复行
+    grep -v -E "[[:space:]]$h\$" /tmp/.hosts.new > /tmp/.hosts.tmp 2>/dev/null || : > /tmp/.hosts.tmp
+    mv /tmp/.hosts.tmp /tmp/.hosts.new
+    printf '%s  %s\n' "$ip" "$h" >> /tmp/.hosts.new
+    echo "  ✓ $h → $ip"
+    ok=$((ok+1))
+  done
+  if [ "$ok" -eq 0 ]; then
+    echo "  ! DoH 一个都没查到，先凑合按原样试（可能会连不上）"
+    rm -f /tmp/.hosts.new
     return 0
   fi
-  grep -v -E 'github\.com' /etc/hosts > /tmp/.hosts.new 2>/dev/null || true
-  printf '\n%s  api.github.com\n%s  github.com\n' "$ip_api" "$ip_web" >> /tmp/.hosts.new
   cat /tmp/.hosts.new > /etc/hosts 2>/dev/null && rm -f /tmp/.hosts.new
-  echo "  ✓ 已修正解析：api.github.com → $ip_api，github.com → $ip_web"
   echo "    （若环境会还原 /etc/hosts，持久配置请写 ~/.user_hosts）"
 }
 fix_dns
