@@ -7,8 +7,12 @@ window.Views = (function () {
   const C = Charts;
 
   /* 公共演示后端的地址。留空则设置页不显示「填入公共演示后端地址」按钮。
-   * 自己有服务器后，把它改成你自己的地址，或者干脆清空。 */
-  const PUBLIC_ENDPOINT = 'https://ac8e1b422b928c3a8.app.workbuddy.link/api/sync';
+   * 自己有服务器后，把它改成你自己的地址。
+   *
+   * 这里保持为空是有意的：仓库是公开的，不能把某个具体服务器的地址写死在代码里，
+   * 那等于让所有 clone 的人默认把客户数据往一台陌生机器上发。
+   * 要用公共后端就自己填一个自己信任的；不想用就留空，按钮不出现。 */
+  const PUBLIC_ENDPOINT = '';
 
   /* ---------- 小组件 ---------- */
   function stageBadge(id) {
