@@ -67,8 +67,46 @@ window.Auth = (function () {
   }
   const base = () => (cfg().url || '').replace(/\/$/, '');
 
+  /* 网络层的失败只丢一句 "Failed to fetch"，用户看了完全不知道该干什么。
+   * 这里统一翻译一次——登录、注册、同步、团队全走 call，
+   * 所以放在这一层修，比在每个 catch 里各写一遍强。
+   * （AI 配置那边是另一套请求，已经在 ai.js 里单独处理了。） */
+  function netMsg() {
+    const u = base();
+    if (!u) return '还没填同步服务地址，这个功能要用云端才跑得起来。'
+      + '不填也能正常用：数据存在本机，只是换设备同步不了。';
+    if (/^http:/.test(u) && typeof location !== 'undefined' && location.protocol === 'https:') {
+      return '连不上：网页是 https，但同步服务地址填的是 http，浏览器禁止这种混合请求。'
+        + '把地址改成 https 开头的。';
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return '连不上同步服务：现在是离线状态。'
+        + '本机的数据一条不少，该记的照记，联网后会自动同步。';
+    }
+    return '连不上同步服务（' + u + '）。'
+      + '常见原因：地址填错了、网络不通、或者这家服务拦了跨域。'
+      + '在设置页点「测试连接」能立刻试出是哪一种。';
+  }
+
   async function call(path, opts) {
-    const r = await fetch(base() + path, opts);
+    /* 地址没填时不能就这么发请求：
+     * fetch('' + '/rest/v1/...') 会变成相对路径，
+     * 请求直接打回用户自己的页面服务器，拿回来一个 404 的 HTML，
+     * 最后报「HTTP 404」——用户根本想不到是地址没填，只会以为服务坏了。
+     * 所以空地址在这里就拦掉，直接说人话。 */
+    if (!base()) {
+      const err = new Error(netMsg());
+      err.status = 0;
+      throw err;
+    }
+    let r;
+    try {
+      r = await fetch(base() + path, opts);
+    } catch (e) {
+      const err = new Error(netMsg());
+      err.status = 0;
+      throw err;
+    }
     let body = null;
     const txt = await r.text();
     try { body = txt ? JSON.parse(txt) : null; } catch (e) { body = txt; }
