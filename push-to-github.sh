@@ -12,9 +12,23 @@
 
 set -euo pipefail
 
-TOKEN="${GITHUB_TOKEN:-${1:-}}"
-REPO="${2:-sales-copilot}"
-VISIBILITY="${3:-private}"
+# 两种用法都支持，位置参数要跟着变：
+#   GITHUB_TOKEN=xxx $0 [仓库名] [private|public]   → 位置参数从 $1 就是仓库名
+#   $0 <令牌> <仓库名> [private|public]             → $1 是令牌，往后顺延
+# 之前没区分这两种，一律按 $2/$3 取，于是
+#   GITHUB_TOKEN=xxx $0 my-repo public
+# 会把 "public" 当成仓库名、可见性还退回 private —— 建出一个错的私有仓库。
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  TOKEN="$GITHUB_TOKEN"
+  REPO="${1:-sales-copilot}"
+  VISIBILITY="${2:-private}"
+else
+  TOKEN="${1:-}"
+  REPO="${2:-sales-copilot}"
+  VISIBILITY="${3:-private}"
+fi
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
 if [ -z "$TOKEN" ]; then
   echo "× 没拿到令牌"
@@ -66,7 +80,7 @@ echo "→ 推送…"
 # 免得令牌明文躺在 .git/config 里 —— 那文件很容易被误提交、误截图。
 git remote remove origin 2>/dev/null || true
 git remote add origin "https://$USER:$TOKEN@github.com/$USER/$REPO.git"
-git push -u origin main
+git push -u origin "$BRANCH"
 git remote set-url origin "https://github.com/$USER/$REPO.git"
 
 echo
