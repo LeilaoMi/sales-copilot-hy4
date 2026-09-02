@@ -30,6 +30,39 @@ fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
+# ── 修 DNS 劫持 ──────────────────────────────────────────────
+# 有些沙箱 / 内网环境会把 github.com 解析到假 IP（198.18.0.x），
+# 结果是 curl 和 git 都连不上，报 SSL_ERROR_SYSCALL 或 403，
+# 看起来像是令牌无效，其实是根本没连到 GitHub。
+# 判据：解析出来的地址落在 198.18.0.0/15 就说明被劫持了。
+# 绕过办法：用 DoH（DNS over HTTPS）查真实 IP，临时写进 /etc/hosts。
+# 注意 /etc/hosts 在这种环境里会被自动还原，所以每次推送前都要刷一次。
+fix_dns() {
+  local cur
+  cur=$(getent hosts api.github.com 2>/dev/null | awk '{print $1}' | head -1)
+  case "$cur" in
+    198.18.*|"") ;;   # 被劫持或解析不出来，往下修
+    *) return 0 ;;    # 正常解析，不用管
+  esac
+
+  echo "→ 发现 GitHub 域名被 DNS 劫持（解析到 ${cur:-空}），改用 DoH 查真实地址…"
+  local ip_api ip_web
+  ip_api=$(curl -s -m 10 "https://dns.alidns.com/resolve?name=api.github.com&type=A" \
+           | grep -oE '"data":"[0-9.]+"' | grep -oE '[0-9.]+' | head -1)
+  ip_web=$(curl -s -m 10 "https://dns.alidns.com/resolve?name=github.com&type=A" \
+           | grep -oE '"data":"[0-9.]+"' | grep -oE '[0-9.]+' | head -1)
+  if [ -z "$ip_api" ] || [ -z "$ip_web" ]; then
+    echo "  ! DoH 也查不到，先凑合按原样试（可能会连不上）"
+    return 0
+  fi
+  grep -v -E 'github\.com' /etc/hosts > /tmp/.hosts.new 2>/dev/null || true
+  printf '\n%s  api.github.com\n%s  github.com\n' "$ip_api" "$ip_web" >> /tmp/.hosts.new
+  cat /tmp/.hosts.new > /etc/hosts 2>/dev/null && rm -f /tmp/.hosts.new
+  echo "  ✓ 已修正解析：api.github.com → $ip_api，github.com → $ip_web"
+  echo "    （若环境会还原 /etc/hosts，持久配置请写 ~/.user_hosts）"
+}
+fix_dns
+
 if [ -z "$TOKEN" ]; then
   echo "× 没拿到令牌"
   echo "  用法：GITHUB_TOKEN=ghp_xxx $0 [仓库名] [private|public]"
