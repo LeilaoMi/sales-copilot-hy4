@@ -393,7 +393,7 @@ window.Views = (function () {
   /* ============================================================
    * 2. 客户库
    * ============================================================ */
-  const CUST_HONORS = ['zong'];
+  const CUST_HONORS2 = ['zong'];
   function customers(ctx) {
     const q = (ctx.q || '').trim().toLowerCase();
     let rows = S.list('customers').slice();
