@@ -943,7 +943,7 @@
       copyText(c.wechat).then(ok => toast(ok ? '微信号已复制，去微信粘贴搜索' : '复制失败', ok ? 'ok' : 'err'));
     },
 
-    'clear-filter': () => { filters.customers = { q: '', level: '', status: '', sort: 'next' }; render(); },
+    'clear-filter': () => { filters.customers = { q: '', level: '', status: '', sort: 'next' }; const _gs = $('#global-search'); if (_gs) _gs.value = ''; render(); },
     'export-csv': () => download(S.customersToCSV(), `客户清单_${S.todayStr()}.csv`, 'text/csv;charset=utf-8'),
     'export-json': () => download(S.exportJSON(), `销冠助手备份_${S.todayStr()}.json`, 'application/json'),
     'import-json': () => {
