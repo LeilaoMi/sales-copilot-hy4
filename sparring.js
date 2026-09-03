@@ -80,7 +80,7 @@ window.Sparring = (function () {
       if (sc0) out.push(sc0);
       const title = item[1], cat = item[0], content = item[3], tags = item[2];
       if (!/^(客户|对方)/.test(String(title).trim())) return;
-      out.push({
+      if (false) out.push({
         key: title,
         category: cat || '',
         line: title.replace(/^客户(说|问|觉得|担心)?/, '').replace(/^[「『]|([」』]$)/g, '').trim(),
