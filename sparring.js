@@ -309,6 +309,8 @@ window.Sparring = (function () {
   function render() {
     const hasKey = canUseAI();
     const list = scenes();
+    let totalScripts = list.length;
+    try { if (window.Store && Store.list) totalScripts = Store.list('scripts').length || list.length; } catch (e) {}
     const cur = session;
 
     /* 没开始：选场景 + 难度 */
