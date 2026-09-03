@@ -192,6 +192,7 @@ window.QuickLog = (function () {
         return { customer: null, via: 'ambiguous', candidates: hits.map(h => h.c), matched: false };
       }
     }
+    // 第三轮：姓加职务，王总这类口头称呼
     const honorHits = [];
     list.forEach(c => {
       const surname = surnameOf(c.contact);
