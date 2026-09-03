@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Ctext x='32' y='45' font-size='40' font-family='sans-serif' font-weight='bold' fill='white' text-anchor='middle'%3E%E9%94%80%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="assets/css/styles.css">
 </head>
 <body>
 
@@ -88,28 +88,28 @@
 
 <!-- playbook.js 必须排在 store.js 前面：
      数据迁移时要读它的种子话术，晚加载就补不上 -->
-<script src="playbook.js"></script>
-<script src="store.js"></script>
+<script src="js/features/playbook.js"></script>
+<script src="js/core/store.js"></script>
 <!-- auth.js 读 Store 里的云配置，sync.js 的账号通道要调 Auth，所以夹在两者之间 -->
-<script src="auth.js"></script>
-<script src="health.js"></script>
-<script src="quicklog.js"></script>
+<script src="js/core/auth.js"></script>
+<script src="js/features/health.js"></script>
+<script src="js/features/quicklog.js"></script>
 <!-- digest.js 依赖 quicklog 的日期解析，必须排在它后面 -->
-<script src="digest.js"></script>
+<script src="js/features/digest.js"></script>
 <!-- report.js 依赖 store 的统计与日期工具，排在 store 之后 -->
-<script src="report.js"></script>
+<script src="js/features/report.js"></script>
 <!-- coach.js 依赖 playbook 的意图识别与检索，还要读 report 的 STALE_DAYS，排在两者之后 -->
-<script src="coach.js"></script>
-<script src="charts.js"></script>
-<script src="views.js"></script>
-<script src="ai.js"></script>
+<script src="js/features/coach.js"></script>
+<script src="js/features/charts.js"></script>
+<script src="js/ui/views.js"></script>
+<script src="js/features/ai.js"></script>
 <!-- sparring.js 调 AI.chat 做多轮对话，排在 ai.js 之后；
      它自带界面，views.js 里只留了一个挂载点 -->
-<script src="sparring.js"></script>
-<script src="sync.js"></script>
-<script src="notify.js"></script>
+<script src="js/features/sparring.js"></script>
+<script src="js/core/sync.js"></script>
+<script src="js/features/notify.js"></script>
 <!-- team.js 依赖 Auth 拉全队记录，排在它后面 -->
-<script src="team.js"></script>
-<script src="ui.js"></script>
+<script src="js/core/team.js"></script>
+<script src="js/ui/ui.js"></script>
 </body>
 </html>
