@@ -188,6 +188,30 @@ window.QuickLog = (function () {
         return { customer: null, via: 'ambiguous', candidates: hits.map(h => h.c), matched: false };
       }
     }
+    const honorHits = [];
+    list.forEach(c => {
+      const surname = surnameOf(c.contact);
+      if (!surname) return;
+      for (let hi = 0; hi < HONORIFICS.length; hi++) {
+        if (t.indexOf(surname + HONORIFICS[hi]) >= 0) { honorHits.push({ c: c, key: surname + HONORIFICS[hi] }); break; }
+      }
+    });
+    if (honorHits.length === 1) return { customer: honorHits[0].c, via: 'honor', matched: true };
+    if (honorHits.length > 1) {
+      const uniq = {};
+      honorHits.forEach(h => { uniq[h.c.id] = h.c; });
+      const uniqList = Object.keys(uniq).map(k => uniq[k]);
+      const refined = uniqList.filter(c => {
+        const nm = c.name || '';
+        for (let L = 4; L >= 2; L--) {
+          const s = nm.slice(0, L);
+          if (s.length === L && t.indexOf(s) >= 0) return true;
+        }
+        return false;
+      });
+      if (refined.length === 1) return { customer: refined[0], via: 'honor+short', matched: true };
+      return { customer: null, via: 'ambiguous', candidates: uniqList, matched: false };
+    }
     return { customer: null, via: 'none', matched: false };
   }
 
