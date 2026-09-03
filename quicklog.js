@@ -48,7 +48,7 @@ window.QuickLog = (function () {
      * 所以「下次/下回」要连同自身一起带进去解析；带进去解不出，
      * 再退回原来的切法，不改变其他句子的既有行为。 */
     const withWord = /^(下次|下回)/.test(m[0]) ? String(raw).slice(m.index) : '';
-    return parseDate(withWord, now) || parseDate(after, now) || parseDate(raw, now);
+    return parseDate(withWord, now) || parseDate(after, now) || '';
   }
 
   const WEEK_MAP = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
