@@ -61,6 +61,17 @@ window.QuickLog = (function () {
     const stripped = near16.replace(/\u5927\u540e\u5929|\u4eca\u5929|\u4eca\u65e5|\u5f53\u5929|\u660e\u5929|\u660e\u65e5|\u540e\u5929/g, '');
     const specific = parseDate(stripped, now);
     if (specific) return specific;
+    const TODAY_WORDS = ['\u5927\u540e\u5929', '\u4eca\u5929', '\u4eca\u65e5', '\u5f53\u5929', '\u660e\u5929', '\u660e\u65e5', '\u540e\u5929'];
+    let lastPos = -1, lastW = '';
+    TODAY_WORDS.forEach(function (w) {
+      const p = near16.lastIndexOf(w);
+      if (p >= 0 && p > lastPos) { lastPos = p; lastW = w; }
+    });
+    if (lastPos >= 0) {
+      const mStartInNear = m.index - start16;
+      const dist = mStartInNear - (lastPos + lastW.length);
+      if (dist > 6) return '';
+    }
     return res16;
   }
 
