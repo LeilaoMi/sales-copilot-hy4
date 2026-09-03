@@ -77,7 +77,8 @@ window.Sparring = (function () {
     const out = [];
     P.SEED.forEach(function (item) {
       const sc0 = toScene(item[0], item[1], item[2], item[3]);
-      const cat = item[0];
+      if (sc0) out.push(sc0);
+      const catX = item[0];
       if (!title) return;
       if (!/^(客户|对方)/.test(String(title).trim())) return;
       out.push({
