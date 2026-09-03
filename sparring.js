@@ -47,7 +47,9 @@ window.Sparring = (function () {
   /* ---------- 场景 ----------
    * 不在这里另写一份场景清单，而是从话术库里挑。
    * 好处：话术库补了新场景，这里自动就有，不用两边维护。
-   * 判断依据是「标题长得像客户说的话」，也就是「客户说/问/觉得/担心」开头。 */
+   * 判断依据是「标题长得像客户说的话」，也就是「客户/对方」开头。
+   * 数量和话术总数不一样是正常的，方法类不适合扮演。
+   * 优先读Store，SEED只做兜底。 */
   function toScene(cat, title, tags, content) {
     if (!title) return null;
     if (!/^(\u5ba2\u6237|\u5bf9\u65b9)/.test(String(title).trim())) return null;
