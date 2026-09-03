@@ -337,7 +337,7 @@ window.Sparring = (function () {
         </p>
         <div class="field-row">
           <div class="field"><label>场景（话术库${totalScripts}条，其中${list.length}个适合对练）</label>
-            <select id="spar-scene">${opts || '<option value="">EMPTY</option>'}</select><div class="hint">HINT</div></div>
+            <select id="spar-scene">${opts || '<option value="">话术库是空的</option>'}</select><div class="hint">HINT</div></div>
           <div class="field"><label>客户性格</label>
             <select id="spar-level">${lv}</select></div>
         </div>
