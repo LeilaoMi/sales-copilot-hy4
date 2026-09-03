@@ -310,6 +310,7 @@ window.Sparring = (function () {
     const hasKey = canUseAI();
     const list = scenes();
     let totalScripts = list.length;
+    // totalScripts ready
     try { if (window.Store && Store.list) totalScripts = Store.list('scripts').length || list.length; } catch (e) {}
     const cur = session;
 
