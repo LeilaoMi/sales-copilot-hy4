@@ -312,6 +312,7 @@ window.Sparring = (function () {
     let totalScripts = list.length;
     try { if (window.Store && Store.list) totalScripts = Store.list('scripts').length || list.length; } catch (e) {}
     const cur = session;
+    // label fix pending
 
     /* 没开始：选场景 + 难度 */
     if (!cur) {
