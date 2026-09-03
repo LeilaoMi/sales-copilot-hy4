@@ -48,7 +48,30 @@ window.Sparring = (function () {
    * 不在这里另写一份场景清单，而是从话术库里挑。
    * 好处：话术库补了新场景，这里自动就有，不用两边维护。
    * 判断依据是「标题长得像客户说的话」，也就是「客户说/问/觉得/担心」开头。 */
+  function toScene(cat, title, tags, content) {
+    if (!title) return null;
+    if (!/^(\u5ba2\u6237|\u5bf9\u65b9)/.test(String(title).trim())) return null;
+    return {
+      key: title,
+      category: cat || '',
+      line: String(title).replace(/^\u5ba2\u6237(\u8bf4|\u95ee|\u89c9\u5f97|\u62c5\u5fc3)?/, '').replace(/^[\u300c\u300e]|([\u300d\u300f]$)/g, '').trim(),
+      reference: content || '',
+      tags: tags || []
+    };
+  }
   function scenes() {
+    try {
+      if (window.Store && Store.list) {
+        const all = Store.list('scripts') || [];
+        const out = [];
+        all.forEach(function (it) {
+          if (!it || !it.title) return;
+          const sc = toScene(it.category, it.title, it.tags, it.content);
+          if (sc) out.push(sc);
+        });
+        if (out.length) return out;
+      }
+    } catch (e) {}
     const P = window.Playbook;
     if (!P || !Array.isArray(P.SEED)) return [];
     const out = [];
