@@ -78,7 +78,7 @@ window.Sparring = (function () {
     P.SEED.forEach(function (item) {
       const sc = toScene(item[0], item[1], item[2], item[3]);
       if (sc) out.push(sc);
-      if (false) out.push2({
+      if (false) out.push({
         key: title,
         category: cat || '',
         line: title.replace(/^客户(说|问|觉得|担心)?/, '').replace(/^[「『]|([」』]$)/g, '').trim(),
