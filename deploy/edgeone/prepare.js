@@ -1,5 +1,5 @@
 /* ============================================================
- * 部署前准备：由主项目的 sync-core.js 生成 ESM 版本给 EdgeOne 云函数用
+ * 部署前准备：由 js/core/sync-core.js 生成 ESM 版本给 EdgeOne 云函数用
  *
  * 为什么要生成，而不是直接 import 上四级目录的文件：
  * EdgeOne 构建时只保证把 cloud-functions 目录内的模块带进产物，
@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(here, '..', '..', 'sync-core.js');
+const SRC = path.join(here, '..', '..', 'js', 'core', 'sync-core.js');
 const DST = path.join(here, 'cloud-functions', '_shared', 'sync-core.js');
 
 if (!fs.existsSync(SRC)) {
@@ -37,9 +37,9 @@ if (i < 0 || j < 0 || j <= i) {
 }
 const logic = srcText.slice(i + BEGIN.length, j).trim();
 
-const HEADER = `/* 本文件由 deploy/edgeone/prepare.js 从 ../../sync-core.js 自动生成。
+const HEADER = `/* 本文件由 deploy/edgeone/prepare.js 从 ../../js/core/sync-core.js 自动生成。
  * 不要直接改这个文件 —— 改了会被下一次部署覆盖回去。
- * 要改就改主项目的 sync-core.js，然后重新运行 node prepare.js。
+ * 要改就改 js/core/sync-core.js，然后重新运行 node prepare.js。
  *
  * 关于哈希：ESM 环境下拿不到同步的 node:crypto，所以这里走 sync-core 内置的
  * 回退算法。空间名（spaceKey）只是一个不可逆映射，只要在同一个后端内稳定
