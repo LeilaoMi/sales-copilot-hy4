@@ -152,6 +152,14 @@ window.QuickLog = (function () {
   /* ============================================================
    * 客户匹配：全名优先，其次逐级缩短做简称匹配
    * ============================================================ */
+  const HONORIFICS = ['\u8463\u4e8b\u957f', '\u7ecf\u7406', '\u4e3b\u4efb', '\u5382\u957f', '\u5e97\u957f', '\u5148\u751f', '\u5973\u58eb', '\u5c0f\u59d0', '\u8001\u677f', '\u8001\u5e08', '\u603b', '\u59d0', '\u54e5', '\u8463', '\u5de5'];
+  const COMPOUND_SURNAMES = ['\u6b27\u9633', '\u53f8\u9a6c', '\u4e0a\u5b98', '\u8bf8\u845b', '\u4e1c\u65b9', '\u7687\u752b', '\u5c09\u8fdf', '\u516c\u5b59', '\u8f69\u8f95', '\u4ee4\u72d0', '\u949f\u79bb', '\u5b87\u6587', '\u957f\u5b59', '\u6155\u5bb9', '\u53f8\u5f92', '\u53f8\u7a7a'];
+  function surnameOf(contact) {
+    const c = String(contact || '').trim();
+    if (!c) return '';
+    if (c.length >= 2 && COMPOUND_SURNAMES.indexOf(c.slice(0, 2)) >= 0) return c.slice(0, 2);
+    return c.slice(0, 1);
+  }
   function matchCustomer(text) {
     const S = window.Store;
     const t = String(text || '');
