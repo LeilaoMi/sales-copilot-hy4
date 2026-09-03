@@ -73,7 +73,7 @@ window.Sparring = (function () {
         });
         if (out.length) return out;
       }
-    } catch (e) {}
+    } catch (e) { /* fallback SEED */ }
     const P = window.Playbook;
     if (!P || !Array.isArray(P.SEED)) return [];
     const out = [];
