@@ -53,7 +53,7 @@ window.QuickLog = (function () {
     const withWord = /^(下次|下回)/.test(m[0]) ? s.slice(m.index) : '';
     const direct = parseDate(withWord, now) || parseDate(after, now);
     if (direct) return direct;
-    // window before intent: cover time-first case, block sentence-initial action time
+    // 意图词前16字窗口：覆盖时间在前的情况，挡住句首行动时间
     const start16 = Math.max(0, m.index - 16);
     const near16 = s.slice(start16, m.index + m[0].length);
     if (!near16) return '';
