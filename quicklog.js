@@ -59,6 +59,7 @@ window.QuickLog = (function () {
     if (!near16) return '';
     const res16 = parseDate(near16, now);
     if (!res16) return '';
+    // 窗口内有今天也有具体日期时，优先具体的
     const stripped = near16.replace(/\u5927\u540e\u5929|\u4eca\u5929|\u4eca\u65e5|\u5f53\u5929|\u660e\u5929|\u660e\u65e5|\u540e\u5929/g, '');
     const specific = parseDate(stripped, now);
     if (specific) return specific;
