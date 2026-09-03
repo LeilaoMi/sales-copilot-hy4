@@ -206,6 +206,7 @@ window.QuickLog = (function () {
       const uniq = {};
       honorHits.forEach(h => { uniq[h.c.id] = h.c; });
       const uniqList = Object.keys(uniq).map(k => uniq[k]);
+      // 同姓多人时用公司简称再定一家
       const refined = uniqList.filter(c => {
         const nm = c.name || '';
         for (let L = 4; L >= 2; L--) {
