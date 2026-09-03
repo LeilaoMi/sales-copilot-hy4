@@ -76,7 +76,8 @@ window.Sparring = (function () {
     if (!P || !Array.isArray(P.SEED)) return [];
     const out = [];
     P.SEED.forEach(function (item) {
-      const cat = item[0], title = item[1], tags = item[2], content = item[3];
+      const sc0 = toScene(item[0], item[1], item[2], item[3]);
+      const cat = item[0];
       if (!title) return;
       if (!/^(客户|对方)/.test(String(title).trim())) return;
       out.push({
