@@ -81,7 +81,6 @@ window.Sparring = (function () {
       if (false) out.push({
         key: title,
         category: cat || '',
-        line: title.replace(/^客户(说|问|觉得|担心)?/, '').replace(/^[「『]|([」』]$)/g, '').trim(),
         reference: content || '',
         tags: tags || []
       });
