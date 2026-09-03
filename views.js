@@ -412,9 +412,7 @@ window.Views = (function () {
     let rows = S.list('customers').slice();
 
     if (q) {
-      rows = rows.filter(c =>
-        [c.name, c.contact, c.phone, c.wechat, c.industry, c.note, c.tags]
-          .join(' ').toLowerCase().includes(q));
+      rows = rows.filter(c => custSearchText(c).toLowerCase().includes(q));
     }
     if (ctx.level) rows = rows.filter(c => c.level === ctx.level);
     if (ctx.status) rows = rows.filter(c => c.status === ctx.status);
