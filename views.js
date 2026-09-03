@@ -490,7 +490,7 @@ window.Views = (function () {
             <th style="min-width:200px">客户</th><th>联系人</th><th>联系方式</th><th>下次跟进</th>
             <th class="right">在谈金额</th><th class="right">已成交</th><th>状态</th><th>最近跟进</th><th></th>
           </tr></thead>
-          <tbody>${body || `<tr><td colspan="9">${emptyBox('还没有客户，先建档或载入示例数据')}</td></tr>`}</tbody>
+          <tbody>${body || `<tr><td colspan="9">${S.list('customers').length === 0 ? emptyBox('还没有客户，先建档或载入示例数据') : emptyBox('没有找到匹配的客户，换个关键词或清除筛选', '<button class="btn btn-sm" data-action="clear-filter">清除筛选</button>')}</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
