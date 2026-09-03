@@ -336,7 +336,7 @@ window.Sparring = (function () {
           : '<b>没配 API Key 也能练</b>：抽一条客户台词让你答，答完拿话术库里的标准应对做对照。配了 Key 才能自动点评。'}
         </p>
         <div class="field-row">
-          <div class="field"><label>LABEL_NEW_${totalScripts}_${list.length}</label>
+          <div class="field"><label>场景（话术库${totalScripts}条，其中${list.length}个适合对练）</label>
             <select id="spar-scene">${opts || '<option value="">EMPTY</option>'}</select><div class="hint">HINT</div></div>
           <div class="field"><label>客户性格</label>
             <select id="spar-level">${lv}</select></div>
