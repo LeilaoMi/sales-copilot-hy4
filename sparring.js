@@ -78,12 +78,6 @@ window.Sparring = (function () {
     P.SEED.forEach(function (item) {
       const sc = toScene(item[0], item[1], item[2], item[3]);
       if (sc) out.push(sc);
-      if (false) out.push({
-        key: title,
-        category: cat || '',
-        reference: content || '',
-        tags: tags || []
-      });
     });
     return out;
   }
