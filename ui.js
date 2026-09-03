@@ -1515,11 +1515,13 @@
       if (t) switchView(t.dataset.view);
     });
 
-    // 全局搜索
+    // 全局搜索：回车跳客户库。跳过去后清空顶部框，筛选状态只留在客户库的搜索框里，
+    // 避免两处各存一份、清了一处另一处还留着，用户以为数据丢了。
     const gs = $('#global-search');
     gs.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
-        filters.customers.q = gs.value;
+        filters.customers.q = (gs.value || '').trim();
+        gs.value = '';
         switchView('customers');
       }
     });
