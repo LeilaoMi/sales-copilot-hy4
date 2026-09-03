@@ -58,7 +58,7 @@ window.QuickLog = (function () {
     if (!near16) return '';
     const res16 = parseDate(near16, now);
     if (!res16) return '';
-    const stripped = near16.replace(/X|Y/g, '');
+    const stripped = near16.replace(/AB|CD/g, '');
     const specific = parseDate(stripped, now);
     if (specific) return specific;
     return res16;
