@@ -53,7 +53,12 @@ window.QuickLog = (function () {
     const withWord = /^(下次|下回)/.test(m[0]) ? s.slice(m.index) : '';
     const direct = parseDate(withWord, now) || parseDate(after, now);
     if (direct) return direct;
-    return '';
+    const start16 = Math.max(0, m.index - 16);
+    const near16 = s.slice(start16, m.index + m[0].length);
+    if (!near16) return '';
+    const res16 = parseDate(near16, now);
+    if (!res16) return '';
+    return res16;
   }
 
   const WEEK_MAP = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
